@@ -27,6 +27,8 @@ function seedState() {
   const deviceId = uid();
   s.myDevices.push({
     id: deviceId,
+    updatedAt: now(),
+    deletedAt: null,
     name: '내 에어프라이어',
     type: 'basket',          // basket | oven | lid
     wattage: 1500,
@@ -38,6 +40,8 @@ function seedState() {
 
   const mk = (r) => ({
     id: uid(),
+    updatedAt: now(),
+    deletedAt: null,
     name: r.name,
     category: r.category,
     favorite: false,
@@ -79,6 +83,8 @@ export function uid() {
   // 폴백 (구형 브라우저)
   return 'id-' + Math.abs(hashStr(String(performance.now()) + ':' + (uid._c = (uid._c || 0) + 1)));
 }
+// 동기화 머지 비교용 타임스탬프(epoch ms). 단조 증가만 하면 됨.
+function now() { return Date.now(); }
 function hashStr(str) {
   let h = 0;
   for (let i = 0; i < str.length; i++) { h = (h << 5) - h + str.charCodeAt(i); h |= 0; }
@@ -113,6 +119,8 @@ export function migrate(data) {
 function normalizeDevice(x) {
   return {
     id: x.id || uid(),
+    updatedAt: numOrZero(x.updatedAt),     // 머지 LWW 키
+    deletedAt: x.deletedAt ? numOrZero(x.deletedAt) : null,  // tombstone
     name: x.name || '이름 없음',
     type: x.type || 'basket',
     wattage: numOrNull(x.wattage),
@@ -125,6 +133,8 @@ function normalizeDevice(x) {
 function normalizeRecipe(x) {
   return {
     id: x.id || uid(),
+    updatedAt: numOrZero(x.updatedAt),     // 머지 LWW 키
+    deletedAt: x.deletedAt ? numOrZero(x.deletedAt) : null,  // tombstone
     name: x.name || '이름 없음',
     category: x.category || '기타',
     favorite: !!x.favorite,
@@ -141,13 +151,31 @@ function normalizeRecipe(x) {
     loadDensity: x.loadDensity || 'single',
     steps: Array.isArray(x.steps) ? x.steps.filter(s => s && typeof s.atMin === 'number') : [],
     memo: x.memo || '',
-    successLog: Array.isArray(x.successLog) ? x.successLog : [],
+    successLog: normalizeLog(x.successLog),
   };
+}
+// successLog 엔트리에 안정적인 id 부여(머지 union 키). 레거시(무 id) 엔트리는
+// 내용 해시로 결정적 id를 만들어 기기 간 중복 합산을 막는다.
+function normalizeLog(arr) {
+  return (Array.isArray(arr) ? arr : []).map(e => {
+    if (!e || typeof e !== 'object') return null;
+    const entry = Object.assign({}, e);
+    if (!entry.id) entry.id = legacyLogId(entry);
+    return entry;
+  }).filter(Boolean);
+}
+function legacyLogId(e) {
+  const key = JSON.stringify([e.date, e.deviceId, e.actualTemp, e.actualTime, e.actualAmount, e.coreTemp, e.result]);
+  return 'lg-' + Math.abs(hashStr(key));
 }
 function numOrNull(v) {
   if (v === '' || v === null || v === undefined) return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
+}
+function numOrZero(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -166,11 +194,22 @@ export function loadState() {
   }
   try {
     _state = migrate(JSON.parse(raw));
+    gcTombstones();   // 오래된 삭제 표식 정리(앱 시작 시 1회)
   } catch (e) {
     console.error('저장 데이터 파싱 실패, 시드로 대체', e);
     _state = seedState();
   }
   return _state;
+}
+
+// 60일 넘은 tombstone 제거. 그 시점이면 모든 기기가 삭제를 반영했다고 보고 영구 제거.
+const TOMBSTONE_TTL_MS = 60 * 24 * 60 * 60 * 1000;
+function gcTombstones() {
+  if (!_state) return;
+  const cutoff = now() - TOMBSTONE_TTL_MS;
+  const live = x => !x.deletedAt || x.deletedAt > cutoff;
+  _state.recipes = (_state.recipes || []).filter(live);
+  _state.myDevices = (_state.myDevices || []).filter(live);
 }
 
 export function getState() { return _state || loadState(); }
@@ -204,29 +243,75 @@ export function getFullData() {
   return { schemaVersion: s.schemaVersion, myDevices: s.myDevices, recipes: s.recipes, settings: s.settings };
 }
 
-// 원격 데이터로 교체(LWW) — 푸시 억제
-export function applyRemote(data) {
-  _suppressHook = true;
-  _state = migrate(data);
-  persist();
-  _suppressHook = false;
+// ---------------------------------------------------------------------------
+// 동기화 머지 (per-item updatedAt LWW + tombstone + successLog union)
+// ---------------------------------------------------------------------------
+// 두 항목 목록을 id 기준으로 머지. 같은 id는 updatedAt이 큰 쪽이 이김(동률 시 로컬).
+// tombstone(deletedAt)도 보통 항목처럼 updatedAt으로 경쟁 → 삭제가 최신이면 삭제 유지.
+function mergeItems(local, remote) {
+  const m = new Map();
+  for (const x of remote) m.set(x.id, x);
+  for (const x of local) {
+    const r = m.get(x.id);
+    m.set(x.id, r ? mergeOne(x, r) : x);
+  }
+  return [...m.values()];
+}
+// a=로컬, b=원격. 스칼라 필드는 승자 채택, successLog는 양쪽 union(유실 방지).
+function mergeOne(a, b) {
+  const winner = (b.updatedAt || 0) > (a.updatedAt || 0) ? b : a;
+  const hasLog = Array.isArray(a.successLog) || Array.isArray(b.successLog);
+  if (!hasLog) return winner;
+  return Object.assign({}, winner, { successLog: unionLog(a.successLog, b.successLog) });
+}
+function unionLog(a, b) {
+  const m = new Map();
+  (Array.isArray(b) ? b : []).forEach(e => e && e.id && m.set(e.id, e));
+  (Array.isArray(a) ? a : []).forEach(e => e && e.id && m.set(e.id, e));  // 로컬 우선
+  return [...m.values()];
+}
+// id 정렬 후 직렬화 — 순서 무관 동등성 비교용(변경/푸시 필요 판단).
+function canonState(st) {
+  const byId = (p, q) => (p.id < q.id ? -1 : p.id > q.id ? 1 : 0);
+  const recipes = [...(st.recipes || [])].sort(byId).map(r =>
+    Object.assign({}, r, { successLog: [...(r.successLog || [])].sort(byId) }));
+  const myDevices = [...(st.myDevices || [])].sort(byId);
+  return JSON.stringify({ recipes, myDevices });
 }
 
-// 최초 로그인 시: 로컬+원격 id 합집합 머지(로컬 우선) — 데이터 유실 방지
+// 순수 머지 코어(테스트 가능, _state 비의존). local/remote: 정규화된 상태.
+// 반환: { recipes, myDevices, lastUsed, changed, pushNeeded }
+export function mergeCore(local, remote) {
+  const before = canonState(local);
+  const recipes = mergeItems(local.recipes || [], remote.recipes || []);
+  const myDevices = mergeItems(local.myDevices || [], remote.myDevices || []);
+  const lastUsed = Object.assign({},
+    (remote.settings && remote.settings.lastUsed) || {},
+    (local.settings && local.settings.lastUsed) || {});
+  const merged = { recipes, myDevices };
+  const after = canonState(merged);
+  return {
+    recipes, myDevices, lastUsed,
+    changed: after !== before,
+    pushNeeded: after !== canonState(remote),
+  };
+}
+
+// 원격 데이터를 로컬에 머지(최초 로그인 + 이후 onSnapshot 공용). 푸시 억제.
+// 반환: { changed: 로컬이 바뀌었나(→UI 갱신), pushNeeded: 머지결과가 원격과 다른가(→수렴 푸시) }
 export function mergeRemote(data) {
   const remote = migrate(data);
   const s = getState();
-  const merge = (local, incoming) => {
-    const m = new Map();
-    incoming.forEach(x => m.set(x.id, x));
-    local.forEach(x => m.set(x.id, x));   // 로컬이 원격을 덮어씀(로컬 우선)
-    return [...m.values()];
-  };
+  const res = mergeCore(s, remote);
+
   _suppressHook = true;
-  s.myDevices = merge(s.myDevices, remote.myDevices);
-  s.recipes = merge(s.recipes, remote.recipes);
+  s.recipes = res.recipes;
+  s.myDevices = res.myDevices;
+  s.settings.lastUsed = res.lastUsed;   // lastBackupAt/changeCount는 기기 로컬값 유지
   persist();
   _suppressHook = false;
+
+  return { changed: res.changed, pushNeeded: res.pushNeeded };
 }
 
 // 영속 권한 요청 (iOS/브라우저 저장소 삭제 완화)
@@ -242,29 +327,36 @@ export async function requestPersist() {
 // ---------------------------------------------------------------------------
 // 기기 CRUD
 // ---------------------------------------------------------------------------
-export function getDevices() { return getState().myDevices; }
-export function getDevice(id) { return getState().myDevices.find(d => d.id === id) || null; }
+// UI/로직용 게터는 tombstone을 숨긴다. _state.myDevices엔 동기화 위해 그대로 남김.
+export function getDevices() { return getState().myDevices.filter(d => !d.deletedAt); }
+export function getDevice(id) {
+  const d = getState().myDevices.find(d => d.id === id);
+  return d && !d.deletedAt ? d : null;
+}
 
 export function saveDevice(input) {
   const s = getState();
+  const stamped = Object.assign({}, input, { updatedAt: now(), deletedAt: null });
   if (input.id) {
     const i = s.myDevices.findIndex(d => d.id === input.id);
-    if (i >= 0) s.myDevices[i] = normalizeDevice(input);
+    if (i >= 0) s.myDevices[i] = normalizeDevice(Object.assign({}, s.myDevices[i], stamped));
+    else s.myDevices.push(normalizeDevice(stamped));
   } else {
-    s.myDevices.push(normalizeDevice(Object.assign({ id: uid() }, input)));
+    s.myDevices.push(normalizeDevice(Object.assign({ id: uid() }, stamped)));
   }
   commit();
   return s.myDevices;
 }
 
-// 기기 삭제: 참조하는 레시피가 있으면 막는다 (dangling 방지)
+// 기기 삭제: 참조하는 (살아있는) 레시피가 있으면 막는다 (dangling 방지)
 export function deleteDevice(id) {
   const s = getState();
-  const used = s.recipes.filter(r => r.baseDeviceId === id);
+  const used = getRecipes().filter(r => r.baseDeviceId === id);
   if (used.length > 0) {
     return { ok: false, usedBy: used.map(r => r.name) };
   }
-  s.myDevices = s.myDevices.filter(d => d.id !== id);
+  const d = s.myDevices.find(d => d.id === id);
+  if (d) { d.deletedAt = now(); d.updatedAt = now(); }  // tombstone (동기화 전파용)
   commit();
   return { ok: true };
 }
@@ -272,35 +364,47 @@ export function deleteDevice(id) {
 // ---------------------------------------------------------------------------
 // 레시피 CRUD
 // ---------------------------------------------------------------------------
-export function getRecipes() { return getState().recipes; }
-export function getRecipe(id) { return getState().recipes.find(r => r.id === id) || null; }
+export function getRecipes() { return getState().recipes.filter(r => !r.deletedAt); }
+export function getRecipe(id) {
+  const r = getState().recipes.find(r => r.id === id);
+  return r && !r.deletedAt ? r : null;
+}
 
 export function saveRecipe(input) {
   const s = getState();
+  const stamped = Object.assign({}, input, { updatedAt: now(), deletedAt: null });
   if (input.id) {
     const i = s.recipes.findIndex(r => r.id === input.id);
-    if (i >= 0) s.recipes[i] = normalizeRecipe(Object.assign({}, s.recipes[i], input));
+    if (i >= 0) s.recipes[i] = normalizeRecipe(Object.assign({}, s.recipes[i], stamped));
+    else s.recipes.push(normalizeRecipe(stamped));
   } else {
-    s.recipes.push(normalizeRecipe(Object.assign({ id: uid() }, input)));
+    s.recipes.push(normalizeRecipe(Object.assign({ id: uid() }, stamped)));
   }
   commit();
   return s.recipes;
 }
 
+// 삭제: 배열에서 빼지 않고 tombstone 표식 → 다른 기기에서 부활 방지
 export function deleteRecipe(id) {
   const s = getState();
-  s.recipes = s.recipes.filter(r => r.id !== id);
+  const r = s.recipes.find(r => r.id === id);
+  if (r) { r.deletedAt = now(); r.updatedAt = now(); }
   delete s.settings.lastUsed[id];
   commit();
 }
 
-// 삭제 실행취소용: id가 없을 때만 복원
+// 삭제 실행취소용: tombstone이면 되살리고, 없으면 복원
 export function restoreRecipe(obj) {
+  if (!obj) return;
   const s = getState();
-  if (obj && !s.recipes.some(r => r.id === obj.id)) {
-    s.recipes.push(normalizeRecipe(obj));
-    commit();
+  const existing = s.recipes.find(r => r.id === obj.id);
+  if (existing) {
+    existing.deletedAt = null;
+    existing.updatedAt = now();
+  } else {
+    s.recipes.push(normalizeRecipe(Object.assign({}, obj, { deletedAt: null, updatedAt: now() })));
   }
+  commit();
 }
 
 export function duplicateRecipe(id) {
@@ -309,6 +413,8 @@ export function duplicateRecipe(id) {
   if (!r) return null;
   const copy = normalizeRecipe(Object.assign({}, r, {
     id: uid(),
+    updatedAt: now(),
+    deletedAt: null,
     name: r.name + ' (복사본)',
     successLog: [],   // 복제본은 기록 초기화
     favorite: false,
@@ -320,7 +426,7 @@ export function duplicateRecipe(id) {
 
 export function toggleFavorite(id) {
   const r = getRecipe(id);
-  if (r) { r.favorite = !r.favorite; commit(); }
+  if (r) { r.favorite = !r.favorite; r.updatedAt = now(); commit(); }
   return r;
 }
 
@@ -329,9 +435,11 @@ export function addSuccessLog(recipeId, entry) {
   const r = getRecipe(recipeId);
   if (!r) return;
   r.successLog.push(Object.assign({
+    id: uid(),   // 머지 union 키
     deviceId: null, actualTemp: null, actualTime: null, actualAmount: null,
     coreTemp: null, result: 'good', date: new Date().toISOString(),
   }, entry));
+  r.updatedAt = now();
   commit();
 }
 
@@ -354,8 +462,8 @@ export function exportData() {
   return JSON.stringify({
     schemaVersion: s.schemaVersion,
     exportedAt: new Date().toISOString(),
-    myDevices: s.myDevices,
-    recipes: s.recipes,
+    myDevices: s.myDevices.filter(d => !d.deletedAt),  // 백업엔 tombstone 제외
+    recipes: s.recipes.filter(r => !r.deletedAt),
     settings: s.settings,
   }, null, 2);
 }

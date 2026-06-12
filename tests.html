@@ -15,6 +15,7 @@
 
   <script type="module">
     import { adjust, suggestFromHistory, extractFromText, FACTORS } from './calc.js';
+    import { mergeCore } from './store.js';
 
     const out = document.getElementById('out');
     let pass = 0, fail = 0;
@@ -90,6 +91,63 @@
       ok('추출: "180℃ 8~10분" → 9분', extractFromText('180℃ 8~10분').time === 9);
       ok('추출: "200°C 15 min"', extractFromText('Cook at 200°C for 15 min').temp === 200);
       ok('추출: 없음 → null', extractFromText('소금 약간').temp === null);
+    }
+
+    // 8) 동기화 머지 — tombstone + per-item updatedAt + successLog union
+    {
+      const st = (recipes, devices = []) => ({ recipes, myDevices: devices, settings: { lastUsed: {} } });
+      const rec = (o) => Object.assign({ id: 'r1', updatedAt: 0, deletedAt: null, successLog: [] }, o);
+
+      // 8a) 삭제가 더 최신 → tombstone 유지(부활 방지)
+      {
+        const local = st([rec({ name: 'A', updatedAt: 100 })]);
+        const remote = st([rec({ name: 'A', deletedAt: 200, updatedAt: 200 })]);
+        const m = mergeCore(local, remote);
+        ok('머지: 원격 삭제(최신)가 로컬 살아있는 항목을 이김', m.recipes[0].deletedAt === 200);
+      }
+
+      // 8b) 로컬 삭제가 최신 → 원격 부활 막음
+      {
+        const local = st([rec({ name: 'A', deletedAt: 200, updatedAt: 200 })]);
+        const remote = st([rec({ name: 'A', updatedAt: 100 })]);
+        const m = mergeCore(local, remote);
+        ok('머지: 로컬 삭제(최신) 유지 — 원격이 부활 못 시킴', !!m.recipes[0].deletedAt);
+      }
+
+      // 8c) per-item LWW: 원격이 최신이면 원격 값 채택
+      {
+        const local = st([rec({ name: '옛이름', updatedAt: 100 })]);
+        const remote = st([rec({ name: '새이름', updatedAt: 200 })]);
+        const m = mergeCore(local, remote);
+        ok('머지: updatedAt 큰 쪽(원격) 값 채택', m.recipes[0].name === '새이름');
+      }
+
+      // 8d) 동시 추가 — 양쪽 항목 모두 보존 + 수렴 푸시 필요
+      {
+        const local = st([rec({ id: 'a', updatedAt: 100 })]);
+        const remote = st([rec({ id: 'b', updatedAt: 100 })]);
+        const m = mergeCore(local, remote);
+        ok('머지: 동시 추가 시 두 항목 모두 보존', m.recipes.length === 2);
+        ok('머지: 로컬만의 항목 있으면 pushNeeded=true', m.pushNeeded === true);
+      }
+
+      // 8e) successLog는 승자와 무관하게 union(기록 유실 방지)
+      {
+        const local = st([rec({ updatedAt: 200, successLog: [{ id: 'L1', result: 'good' }] })]);
+        const remote = st([rec({ updatedAt: 100, successLog: [{ id: 'L2', result: 'burnt' }] })]);
+        const m = mergeCore(local, remote);
+        const ids = m.recipes[0].successLog.map(e => e.id).sort();
+        ok('머지: successLog 양쪽 union(L1+L2)', JSON.stringify(ids) === JSON.stringify(['L1', 'L2']));
+      }
+
+      // 8f) 동일 상태 머지는 무변화(루프 방지)
+      {
+        const a = st([rec({ name: 'A', updatedAt: 100 })]);
+        const b = st([rec({ name: 'A', updatedAt: 100 })]);
+        const m = mergeCore(a, b);
+        ok('머지: 동일 상태면 changed=false', m.changed === false);
+        ok('머지: 동일 상태면 pushNeeded=false', m.pushNeeded === false);
+      }
     }
 
     const summary = document.createElement('h1');

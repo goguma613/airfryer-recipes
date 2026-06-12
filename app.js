@@ -36,13 +36,52 @@ async function boot() {
       if (user) ui.toast(`${user.displayName || user.email}(으)로 동기화 켜짐`, 'ok');
       if (nav.screen === 'settings') render();
     },
-    onInitialRemote: (data) => { store.mergeRemote(data); refreshIfVisible(); },
+    onInitialRemote: (data) => { const r = store.mergeRemote(data); if (r.changed) refreshIfVisible(); },
     onAfterInitial: () => sync.pushData(store.getFullData()),
-    onRemoteData: (data) => { store.applyRemote(data); refreshIfVisible(); },
+    onRemoteData: (data) => handleRemote(data),
     onStatus: (status) => { syncStatus = status; if (nav.screen === 'settings') render(); },
   });
 
   go('home');
+}
+
+// 입력이 있는 화면(편집/조리)에선 원격 변경을 즉시 적용하면 미저장 입력이 날아간다.
+// → 바로 머지하지 말고 버퍼링하고 "새로고침" 배너만 띄운다. 안전한 화면에선 즉시 머지.
+const BUSY_SCREENS = ['edit', 'deviceForm', 'cook', 'cookmode', 'result'];
+let pendingRemote = null;
+
+function isBusyScreen() { return BUSY_SCREENS.includes(nav.screen); }
+
+function handleRemote(data) {
+  if (isBusyScreen()) { pendingRemote = data; showSyncBanner(); return; }
+  applyRemoteMerge(data);
+}
+
+// 머지 후: 원격과 달라졌으면(우리만 가진 항목 등) 수렴 위해 푸시. 로컬이 바뀌었으면 다시 그림.
+function applyRemoteMerge(data) {
+  const r = store.mergeRemote(data);
+  if (r.pushNeeded) sync.pushData(store.getFullData());
+  if (r.changed) refreshIfVisible();
+}
+
+// 버퍼된 원격 변경을 적용(배너 새로고침 버튼 / 안전 화면 진입 시)
+function flushPendingRemote() {
+  if (!pendingRemote) return;
+  const data = pendingRemote;
+  pendingRemote = null;
+  hideSyncBanner();
+  applyRemoteMerge(data);
+}
+
+function showSyncBanner() {
+  const el = document.getElementById('sync-banner');
+  if (!el) return;
+  el.innerHTML = `🔄 다른 기기에서 변경된 내용이 있어요 <button data-action="sync-refresh">새로고침</button>`;
+  el.hidden = false;
+}
+function hideSyncBanner() {
+  const el = document.getElementById('sync-banner');
+  if (el) { el.hidden = true; el.innerHTML = ''; }
 }
 
 // 원격 변경이 들어오면 현재 보던 화면을 다시 그림(편집/조리 중엔 방해 안 함)
@@ -63,6 +102,8 @@ function go(screen, id = null) {
   nav = { screen, id };
   render();
   window.scrollTo(0, 0);
+  // 안전한 화면으로 빠져나왔으면 버퍼된 원격 변경을 적용
+  if (!isBusyScreen()) flushPendingRemote();
 }
 
 function render() {
@@ -227,6 +268,7 @@ function onClick(e) {
     case 'req-persist': reqPersist(); break;
     case 'sign-in': sync.signIn(); break;
     case 'sign-out': signOut(); break;
+    case 'sync-refresh': flushPendingRemote(); render(); break;
   }
 }
 

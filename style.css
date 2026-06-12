@@ -325,6 +325,14 @@ body.cookmode-on .field label { color: #c9bbad; }
 .nudge { background: var(--warn-soft); border-bottom: 1px solid var(--warn-line); padding: 11px var(--sp-4);
   font-size: var(--fs-base); color: var(--warn); cursor: pointer; }
 
+/* ── 동기화 새로고침 배너 (편집/조리 중 원격 변경 알림) ── */
+#sync-banner { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3);
+  background: var(--primary-soft); border-bottom: 1px solid var(--primary-line); color: var(--primary-hover);
+  padding: 10px var(--sp-4); font-size: var(--fs-base); font-weight: 600; }
+#sync-banner[hidden] { display: none; }
+#sync-banner button { flex: none; background: var(--primary); color: #fff; border: none;
+  border-radius: var(--r-pill); padding: 6px 14px; font: inherit; font-weight: 700; cursor: pointer; }
+
 /* ── 하단 탭 ── */
 #tabs { position: fixed; bottom: 0; left: 0; right: 0; z-index: 20; display: flex;
   background: hsl(36 50% 99% / 0.86); -webkit-backdrop-filter: saturate(180%) blur(12px);
