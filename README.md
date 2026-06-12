@@ -30,10 +30,12 @@ python -m http.server 8000
 ```
 브라우저에서 `http://localhost:8000` 접속.
 
-## 폰에서 쓰기 (PWA) — GitHub Pages 배포
-1. 이 폴더를 GitHub 레포에 푸시.
-2. Settings → Pages → 브랜치 지정 → `https://<id>.github.io/<repo>/` 생성.
-3. 폰 브라우저로 열고 **"홈 화면에 추가"** → 앱처럼 실행 + 오프라인 동작.
+## 폰에서 쓰기 (PWA)
+**배포 주소: https://goguma613.github.io/airfryer-recipes/**
+
+폰 브라우저로 위 주소를 열고 **"홈 화면에 추가"** → 앱처럼 실행 + 오프라인 동작.
+
+코드를 수정한 뒤에는 `git push`만 하면 GitHub Pages가 자동으로 다시 배포합니다.
 
 > ⚠️ 데이터는 **이 브라우저에만** 저장됩니다(localStorage). 브라우저 데이터 삭제나
 > 장기 미사용(특히 iOS Safari) 시 사라질 수 있어요. **주기적으로 설정 → 내보내기로 백업**하세요.
