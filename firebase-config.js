@@ -17,10 +17,11 @@
 //       }
 
 export const firebaseConfig = {
-  apiKey: "PASTE_API_KEY",
-  authDomain: "PASTE_PROJECT.firebaseapp.com",
-  projectId: "PASTE_PROJECT",
-  storageBucket: "PASTE_PROJECT.appspot.com",
-  messagingSenderId: "PASTE_SENDER_ID",
-  appId: "PASTE_APP_ID",
+  apiKey: "AIzaSyBV9fAZ8uococIgPz5-S2l0xUGcu5rzOxo",
+  authDomain: "airfryer-recipes-318a3.firebaseapp.com",
+  projectId: "airfryer-recipes-318a3",
+  storageBucket: "airfryer-recipes-318a3.firebasestorage.app",
+  messagingSenderId: "900785827292",
+  appId: "1:900785827292:web:aa47c1d80541b4f962f319",
+  measurementId: "G-7BZVQ4MR4G",
 };
