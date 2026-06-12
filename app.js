@@ -1,6 +1,7 @@
 // app.js — 컨트롤러: 네비게이션, 이벤트 배선, 타이머 통합.
 import * as store from './store.js';
 import * as ui from './ui.js';
+import * as sync from './sync.js';
 import { adjust, suggestFromHistory, extractFromText } from './calc.js';
 import { CookTimer, fmtTime, beep } from './timer.js';
 
@@ -14,6 +15,8 @@ let cook = { recipeId: null, deviceId: null, amount: null, result: null, temp: n
 let timer = null;
 let persisted = false;
 let lastImportBackup = null;
+let syncUser = null;
+let syncStatus = sync.isConfigured() ? 'ready' : 'unconfigured';
 
 // --------------------------------------------------------------------------
 // 부팅
@@ -24,7 +27,27 @@ async function boot() {
   // 데이터가 있으면 영속 권한 시도(사용자 제스처 없이도 일부 브라우저 허용)
   store.requestPersist().then(p => { if (p) persisted = true; });
   bindEvents();
+
+  // 동기화: 로컬 변경 → 푸시. 로그인/원격변경 → 로컬 반영.
+  store.setCommitHook((data) => sync.pushData(data));
+  sync.initSync({
+    onUser: (user) => {
+      syncUser = user;
+      if (user) ui.toast(`${user.displayName || user.email}(으)로 동기화 켜짐`, 'ok');
+      if (nav.screen === 'settings') render();
+    },
+    onInitialRemote: (data) => { store.mergeRemote(data); refreshIfVisible(); },
+    onAfterInitial: () => sync.pushData(store.getFullData()),
+    onRemoteData: (data) => { store.applyRemote(data); refreshIfVisible(); },
+    onStatus: (status) => { syncStatus = status; if (nav.screen === 'settings') render(); },
+  });
+
   go('home');
+}
+
+// 원격 변경이 들어오면 현재 보던 화면을 다시 그림(편집/조리 중엔 방해 안 함)
+function refreshIfVisible() {
+  if (['home', 'detail', 'devices', 'settings'].includes(nav.screen)) render();
 }
 
 async function checkPersisted() {
@@ -82,7 +105,9 @@ function render() {
       view.innerHTML = ui.renderDeviceForm(nav.id ? store.getDevice(nav.id) : null);
       break;
     case 'settings':
-      view.innerHTML = ui.renderSettings(store.getState().settings, persisted);
+      view.innerHTML = ui.renderSettings(store.getState().settings, persisted, {
+        configured: sync.isConfigured(), user: syncUser, status: syncStatus,
+      });
       break;
   }
   updateTabs();
@@ -200,6 +225,8 @@ function onClick(e) {
     case 'export': doExport(); break;
     case 'import-pick': document.getElementById('import-file').click(); break;
     case 'req-persist': reqPersist(); break;
+    case 'sign-in': sync.signIn(); break;
+    case 'sign-out': signOut(); break;
   }
 }
 
@@ -409,6 +436,15 @@ function handleImportFile(file) {
     ui.toastUndo('가져왔어요', () => { if (store.restoreFrom(backup)) go('home'); });
   };
   reader.readAsText(file);
+}
+
+async function signOut() {
+  const ok = await ui.confirmSheet({ title: '로그아웃', message: '동기화를 끄고 로그아웃할까요? 데이터는 이 기기에 그대로 남아요.', okText: '로그아웃' });
+  if (!ok) return;
+  await sync.signOutUser();
+  syncUser = null;
+  ui.toast('로그아웃했어요', 'ok');
+  render();
 }
 
 async function reqPersist() {

@@ -320,6 +320,8 @@ body.cookmode-on .field label { color: #c9bbad; }
   display: flex; flex-direction: column; gap: var(--sp-2); }
 .info { background: var(--card); border: 1px solid var(--line); border-radius: var(--r-md);
   padding: var(--sp-4); margin: var(--sp-2) 0; font-size: var(--fs-base); box-shadow: var(--shadow-xs); }
+.info.sync-on { background: var(--success-soft); border-color: var(--success-line); color: var(--success); }
+.info code { background: var(--bg-soft); padding: 1px 6px; border-radius: 6px; font-size: 0.9em; }
 .nudge { background: var(--warn-soft); border-bottom: 1px solid var(--warn-line); padding: 11px var(--sp-4);
   font-size: var(--fs-base); color: var(--warn); cursor: pointer; }
 

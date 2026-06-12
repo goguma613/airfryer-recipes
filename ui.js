@@ -320,12 +320,34 @@ export function renderDeviceForm(d) {
 // ---------------------------------------------------------------------------
 // 설정
 // ---------------------------------------------------------------------------
-export function renderSettings(settings, persisted) {
+const SYNC_LABEL = { ready: '대기', signing: '로그인 중…', syncing: '동기화 중…', synced: '동기화됨 ✓',
+  offline: '오프라인', error: '오류', unconfigured: '미설정' };
+
+export function renderSettings(settings, persisted, syncInfo) {
   const last = settings.lastBackupAt ? settings.lastBackupAt.slice(0, 10) : '없음';
   const needBackup = (settings.changeCount || 0) >= 5;
+  const s = syncInfo || { configured: false };
+
+  let syncBlock;
+  if (!s.configured) {
+    syncBlock = `<div class="info">클라우드 동기화가 아직 설정되지 않았어요. <code>firebase-config.js</code>에 Firebase 설정을 넣으면 기기 간 동기화를 켤 수 있어요. 지금은 이 기기에만 저장됩니다.</div>`;
+  } else if (s.user) {
+    syncBlock = `
+      <div class="info sync-on">☁️ <b>${esc(s.user.displayName || s.user.email)}</b> 계정으로 기기 간 동기화 중
+        <span class="badge">${esc(SYNC_LABEL[s.status] || s.status)}</span></div>
+      <button class="btn" data-action="sign-out">로그아웃</button>`;
+  } else {
+    syncBlock = `
+      <div class="info">기기 간 동기화를 켜려면 Google로 로그인하세요. 로그인 전에는 이 기기에만 저장됩니다(로그인은 선택).</div>
+      <button class="btn primary" data-action="sign-in">☁️ Google로 로그인해 동기화</button>`;
+  }
+
   return `
     <div class="settings">
       <h1>설정</h1>
+
+      <h2 class="section-title">클라우드 동기화</h2>
+      ${syncBlock}
 
       <h2 class="section-title">백업 (중요)</h2>
       <div class="info">

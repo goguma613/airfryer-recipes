@@ -185,10 +185,48 @@ function persist() {
   return true;
 }
 
-// 변경 후 호출: 저장 + 변경 카운트 증가(백업 넛지용)
+// 동기화 훅: 로컬 변경 시 호출(원격 적용 중엔 억제해 루프 방지)
+let _commitHook = null;
+let _suppressHook = false;
+export function setCommitHook(fn) { _commitHook = fn; }
+
+// 변경 후 호출: 저장 + 변경 카운트 증가(백업 넛지용) + 동기화 푸시
 function commit() {
   _state.settings.changeCount = (_state.settings.changeCount || 0) + 1;
-  return persist();
+  const ok = persist();
+  if (_commitHook && !_suppressHook) _commitHook(getFullData());
+  return ok;
+}
+
+// 동기화용 전체 스냅샷
+export function getFullData() {
+  const s = getState();
+  return { schemaVersion: s.schemaVersion, myDevices: s.myDevices, recipes: s.recipes, settings: s.settings };
+}
+
+// 원격 데이터로 교체(LWW) — 푸시 억제
+export function applyRemote(data) {
+  _suppressHook = true;
+  _state = migrate(data);
+  persist();
+  _suppressHook = false;
+}
+
+// 최초 로그인 시: 로컬+원격 id 합집합 머지(로컬 우선) — 데이터 유실 방지
+export function mergeRemote(data) {
+  const remote = migrate(data);
+  const s = getState();
+  const merge = (local, incoming) => {
+    const m = new Map();
+    incoming.forEach(x => m.set(x.id, x));
+    local.forEach(x => m.set(x.id, x));   // 로컬이 원격을 덮어씀(로컬 우선)
+    return [...m.values()];
+  };
+  _suppressHook = true;
+  s.myDevices = merge(s.myDevices, remote.myDevices);
+  s.recipes = merge(s.recipes, remote.recipes);
+  persist();
+  _suppressHook = false;
 }
 
 // 영속 권한 요청 (iOS/브라우저 저장소 삭제 완화)
