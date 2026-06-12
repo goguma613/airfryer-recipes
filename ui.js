@@ -66,16 +66,19 @@ function emptyHome() {
 }
 
 function card(r) {
-  const risk = r.riskFood ? `<span class="badge risk">중심온도</span>` : '';
-  const star = r.favorite ? '⭐' : '';
   return `
-    <button class="card" data-action="open" data-id="${esc(r.id)}">
-      <div class="card-top">
-        <span class="card-name">${esc(r.name)} ${star}</span>
-        <span class="badge">${esc(r.category)}</span>
-      </div>
-      <div class="card-meta">${esc(r.baseTemp ?? '?')}℃ · ${esc(r.baseTime ?? '?')}분 ${risk}</div>
-    </button>`;
+    <div class="card-wrap">
+      <button class="card${r.riskFood ? ' card--risk' : ''}" data-action="open" data-id="${esc(r.id)}">
+        <div class="card__head"><span class="card__cat">${esc(r.category)}</span></div>
+        <div class="card__name">${esc(r.name)}</div>
+        <div class="card__spec">
+          <span class="card__temp">${esc(r.baseTemp ?? '?')}<small>℃</small></span>
+          <span class="card__dot">·</span>
+          <span class="card__time">${esc(r.baseTime ?? '?')}<small>분</small></span>
+        </div>
+      </button>
+      <button class="card__fav${r.favorite ? ' is-on' : ''}" data-action="fav" data-id="${esc(r.id)}" aria-label="즐겨찾기" aria-pressed="${!!r.favorite}">${r.favorite ? '★' : '☆'}</button>
+    </div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -99,31 +102,32 @@ export function renderDetail(r, baseDevice) {
     <div class="detail">
       <div class="detail-head">
         <h1>${esc(r.name)}</h1>
-        <button class="icon-btn" data-action="fav" data-id="${esc(r.id)}" aria-label="즐겨찾기">${r.favorite ? '⭐' : '☆'}</button>
+        <button class="icon-btn" data-action="fav" data-id="${esc(r.id)}" aria-label="즐겨찾기" aria-pressed="${!!r.favorite}">${r.favorite ? '★' : '☆'}</button>
       </div>
       <div class="chips">
         <span class="badge">${esc(r.category)}</span>
         <span class="badge">${esc(SOURCE_LABEL[r.source] || r.source)}</span>
         <span class="badge">${esc(STATE_LABEL[r.startState] || r.startState)}</span>
       </div>
+      <div class="hero-spec">
+        <div><span>온도</span><b>${esc(r.baseTemp ?? '?')}<small>℃</small></b></div>
+        <div><span>시간</span><b>${esc(r.baseTime ?? '?')}<small>분</small></b></div>
+      </div>
+      <p class="hero-sub">기준 양 ${r.baseAmount ? esc(r.baseAmount) + 'g' : '-'} · ${esc(baseDevice ? baseDevice.name : '기기 없음')}</p>
       ${riskBox}
-      <div class="kv">
-        <div><span>기준 온도</span><b>${esc(r.baseTemp ?? '?')}℃</b></div>
-        <div><span>기준 시간</span><b>${esc(r.baseTime ?? '?')}분</b></div>
-        <div><span>기준 양</span><b>${r.baseAmount ? esc(r.baseAmount) + 'g' : '-'}</b></div>
-        <div><span>기준 기기</span><b>${esc(baseDevice ? baseDevice.name : '기기 없음')}</b></div>
+      <div class="action-bar">
+        <button class="btn primary big" data-action="cook" data-id="${esc(r.id)}">🔥 조리 시작</button>
       </div>
       <h2 class="section-title">단계</h2>
       ${steps}
       ${r.memo ? `<h2 class="section-title">메모</h2><p class="memo">${esc(r.memo)}</p>` : ''}
-      <button class="btn primary big" data-action="cook" data-id="${esc(r.id)}">🔥 조리 시작</button>
-      <div class="row-btns">
-        <button class="btn" data-action="edit" data-id="${esc(r.id)}">편집</button>
-        <button class="btn" data-action="dup" data-id="${esc(r.id)}">복제</button>
-        <button class="btn danger" data-action="del" data-id="${esc(r.id)}">삭제</button>
-      </div>
       <h2 class="section-title">조리 기록</h2>
       ${log}
+      <div class="detail-manage">
+        <button class="link-btn" data-action="edit" data-id="${esc(r.id)}">편집</button>
+        <button class="link-btn" data-action="dup" data-id="${esc(r.id)}">복제</button>
+        <button class="link-btn danger" data-action="del" data-id="${esc(r.id)}">삭제</button>
+      </div>
     </div>`;
 }
 
@@ -205,9 +209,9 @@ export function renderResultPrompt(r) {
     <div class="result-prompt">
       <h2>${esc(r.name)} — 어땠어요?</h2>
       <div class="result-choices">
-        <button class="btn big choice" data-action="result" data-id="${esc(r.id)}" data-result="good">👍 딱좋음</button>
-        <button class="btn big choice" data-action="result" data-id="${esc(r.id)}" data-result="undercooked">🥶 덜익음</button>
-        <button class="btn big choice" data-action="result" data-id="${esc(r.id)}" data-result="burnt">🔥 탐</button>
+        <button class="btn choice" data-action="result" data-id="${esc(r.id)}" data-result="good"><span class="emoji">👍</span>딱좋음</button>
+        <button class="btn choice" data-action="result" data-id="${esc(r.id)}" data-result="undercooked"><span class="emoji">🥶</span>덜익음</button>
+        <button class="btn choice" data-action="result" data-id="${esc(r.id)}" data-result="burnt"><span class="emoji">🔥</span>탐</button>
       </div>
       <div class="field">
         <label>다음엔 시간 조정 (분, 선택)</label>
@@ -346,4 +350,64 @@ export function renderSettings(settings, persisted) {
 export function backupNudge(settings) {
   if ((settings.changeCount || 0) < 5) return '';
   return `<div class="nudge" data-action="go-settings">💾 변경사항이 쌓였어요. 백업하시겠어요? <b>설정 →</b></div>`;
+}
+
+// ---------------------------------------------------------------------------
+// Toast / Bottom Sheet (네이티브 alert/confirm 대체)
+// ---------------------------------------------------------------------------
+export function toast(msg, type = '', ms = 2600) {
+  let wrap = document.querySelector('.toast-wrap');
+  if (!wrap) { wrap = document.createElement('div'); wrap.className = 'toast-wrap'; document.body.appendChild(wrap); }
+  const el = document.createElement('div');
+  el.className = 'toast' + (type ? ' ' + type : '');
+  el.setAttribute('role', 'status');
+  el.textContent = msg;
+  wrap.appendChild(el);
+  setTimeout(() => {
+    el.classList.add('hide');
+    el.addEventListener('animationend', () => el.remove(), { once: true });
+  }, ms);
+}
+
+// 실행취소 액션이 있는 토스트
+export function toastUndo(msg, onUndo, ms = 5000) {
+  let wrap = document.querySelector('.toast-wrap');
+  if (!wrap) { wrap = document.createElement('div'); wrap.className = 'toast-wrap'; document.body.appendChild(wrap); }
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.innerHTML = `<span></span><button class="toast__act">실행취소</button>`;
+  el.querySelector('span').textContent = msg;
+  let done = false;
+  const remove = () => { if (done) return; done = true; el.classList.add('hide'); el.addEventListener('animationend', () => el.remove(), { once: true }); };
+  el.querySelector('.toast__act').onclick = () => { onUndo(); remove(); };
+  wrap.appendChild(el);
+  setTimeout(remove, ms);
+}
+
+export function confirmSheet({ title, message, okText = '확인', cancelText = '취소', danger = false } = {}) {
+  return new Promise((resolve) => {
+    const back = document.createElement('div');
+    back.className = 'sheet-backdrop';
+    back.innerHTML = `
+      <div class="sheet" role="dialog" aria-modal="true">
+        ${title ? `<h3>${esc(title)}</h3>` : ''}
+        ${message ? `<p>${esc(message)}</p>` : ''}
+        <div class="sheet-actions">
+          <button class="btn ${danger ? 'danger-fill' : 'primary'}" data-ok>${esc(okText)}</button>
+          <button class="btn" data-cancel>${esc(cancelText)}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(back);
+    const close = (val) => {
+      back.classList.add('hide');
+      back.addEventListener('animationend', () => { back.remove(); resolve(val); }, { once: true });
+    };
+    back.querySelector('[data-ok]').onclick = () => close(true);
+    back.querySelector('[data-cancel]').onclick = () => close(false);
+    back.onclick = (e) => { if (e.target === back) close(false); };
+    document.addEventListener('keydown', function onEsc(e) {
+      if (e.key === 'Escape') { document.removeEventListener('keydown', onEsc); close(false); }
+    });
+    back.querySelector('[data-ok]').focus();
+  });
 }

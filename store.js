@@ -256,6 +256,15 @@ export function deleteRecipe(id) {
   commit();
 }
 
+// 삭제 실행취소용: id가 없을 때만 복원
+export function restoreRecipe(obj) {
+  const s = getState();
+  if (obj && !s.recipes.some(r => r.id === obj.id)) {
+    s.recipes.push(normalizeRecipe(obj));
+    commit();
+  }
+}
+
 export function duplicateRecipe(id) {
   const s = getState();
   const r = getRecipe(id);

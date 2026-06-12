@@ -46,6 +46,8 @@ function render() {
   const inCookMode = nav.screen === 'cookmode' || nav.screen === 'result';
   document.body.classList.toggle('cookmode-on', inCookMode);
   tabsEl.style.display = inCookMode ? 'none' : '';
+  const topbar = document.getElementById('topbar');
+  if (topbar) topbar.style.display = inCookMode ? 'none' : '';
 
   switch (nav.screen) {
     case 'home':
@@ -165,9 +167,7 @@ function onClick(e) {
     case 'fav': store.toggleFavorite(id); render(); break;
     case 'edit': go('edit', id); break;
     case 'dup': { const c = store.duplicateRecipe(id); if (c) go('detail', c.id); break; }
-    case 'del':
-      if (confirm('이 레시피를 삭제할까요?')) { store.deleteRecipe(id); go('home'); }
-      break;
+    case 'del': confirmDelete(id); break;
 
     // 조리
     case 'cook': cook = { recipeId: id, deviceId: null, amount: null }; go('cook'); break;
@@ -178,9 +178,7 @@ function onClick(e) {
     // Cook Mode
     case 'cm-pause': togglePause(t); break;
     case 'cm-add': if (timer) timer.addSeconds(Number(t.dataset.sec) || 60); break;
-    case 'cm-stop':
-      if (confirm('타이머를 정지하고 결과를 기록할까요?')) { if (timer) timer.stop(); go('result'); }
-      break;
+    case 'cm-stop': confirmStop(); break;
 
     // 결과 기록
     case 'result': saveResult(id, t.dataset.result); break;
@@ -217,7 +215,7 @@ function onInput(e) {
 function onChange(e) {
   if (e.target.id === 'cook-device') { cook.deviceId = e.target.value; renderCook(); }
   if (e.target.id === 'cook-amount') { cook.amount = e.target.value ? Number(e.target.value) : null; renderCook(); }
-  if (e.target.id === 'import-file') handleImportFile(e.target.files[0]);
+  if (e.target.id === 'import-file') { handleImportFile(e.target.files[0]); e.target.value = ''; }
 }
 
 // --------------------------------------------------------------------------
@@ -265,6 +263,22 @@ function togglePause(btn) {
   else { timer.resume(); btn.textContent = '일시정지'; }
 }
 
+async function confirmDelete(id) {
+  const ok = await ui.confirmSheet({ title: '레시피 삭제', message: '이 레시피를 삭제할까요?', okText: '삭제', danger: true });
+  if (!ok) return;
+  const snapshot = JSON.parse(JSON.stringify(store.getRecipe(id)));
+  store.deleteRecipe(id);
+  go('home');
+  ui.toastUndo('레시피를 삭제했어요', () => { store.restoreRecipe(snapshot); go('detail', snapshot.id); });
+}
+
+async function confirmStop() {
+  const ok = await ui.confirmSheet({ title: '타이머 정지', message: '타이머를 정지하고 결과를 기록할까요?', okText: '정지', danger: true });
+  if (!ok) return;
+  if (timer) timer.stop();
+  go('result');
+}
+
 function saveResult(id, result) {
   const adjEl = document.getElementById('result-adjust');
   const coreEl = document.getElementById('result-core');
@@ -293,7 +307,8 @@ function doExtract() {
   const { temp, time } = extractFromText(val('f-paste'));
   if (temp != null) document.getElementById('f-temp').value = temp;
   if (time != null) document.getElementById('f-time').value = time;
-  if (temp == null && time == null) alert('온도/시간을 찾지 못했어요. 직접 입력해주세요.');
+  if (temp == null && time == null) ui.toast('온도·시간을 찾지 못했어요. 직접 입력해주세요.', 'risk');
+  else ui.toast('자동으로 채웠어요. 확인해주세요.', 'ok');
 }
 
 function parseSteps(text) {
@@ -308,7 +323,11 @@ function parseSteps(text) {
 function saveRecipe() {
   const name = val('f-name'), temp = num('f-temp'), time = num('f-time');
   if (!name || temp == null || time == null) {
-    alert('이름·온도·시간은 필수예요.');
+    ui.toast('이름·온도·시간은 필수예요.', 'risk');
+    ['f-name', 'f-temp', 'f-time'].forEach(fid => {
+      const el = document.getElementById(fid);
+      if (el) el.setAttribute('aria-invalid', String(!el.value.trim()));
+    });
     return;
   }
   const input = {
@@ -335,7 +354,7 @@ function saveRecipe() {
 // --------------------------------------------------------------------------
 function saveDevice() {
   const name = val('d-name'), watt = num('d-watt');
-  if (!name || watt == null) { alert('이름·출력(W)은 필수예요.'); return; }
+  if (!name || watt == null) { ui.toast('이름·출력(W)은 필수예요.', 'risk'); return; }
   store.saveDevice({
     id: val('d-id') || undefined,
     name, wattage: watt,
@@ -350,10 +369,11 @@ function saveDevice() {
 function deleteDevice(id) {
   const res = store.deleteDevice(id);
   if (!res.ok) {
-    alert(`이 기기를 쓰는 레시피가 있어 삭제할 수 없어요:\n${res.usedBy.join(', ')}`);
+    ui.toast(`이 기기를 쓰는 레시피가 있어 삭제할 수 없어요: ${res.usedBy.join(', ')}`, 'risk');
     return;
   }
   go('devices');
+  ui.toast('기기를 삭제했어요', 'ok');
 }
 
 // --------------------------------------------------------------------------
@@ -370,23 +390,23 @@ function doExport() {
   document.body.removeChild(a); URL.revokeObjectURL(url);
   store.markBackupDone();
   render();
+  ui.toast('백업 파일을 내보냈어요', 'ok');
 }
 
 function handleImportFile(file) {
   if (!file) return;
   const reader = new FileReader();
-  reader.onload = () => {
+  reader.onload = async () => {
     const res = store.validateImport(String(reader.result));
-    if (!res.ok) { alert('가져오기 실패: ' + res.error); return; }
-    const replace = confirm(
-      `가져올 데이터: 기기 ${res.counts.devices}개, 레시피 ${res.counts.recipes}개\n\n` +
-      `[확인] 전체 덮어쓰기  /  [취소] 기존과 병합`
-    );
-    lastImportBackup = store.applyImport(res.data, replace ? 'replace' : 'merge');
-    if (confirm('가져오기 완료! 결과가 이상하면 [확인]을 눌러 되돌릴 수 있어요. 되돌릴까요?')) {
-      if (lastImportBackup && store.restoreFrom(lastImportBackup)) alert('되돌렸어요.');
-    }
+    if (!res.ok) { ui.toast('가져오기 실패: ' + res.error, 'risk'); return; }
+    const replace = await ui.confirmSheet({
+      title: '데이터 가져오기',
+      message: `기기 ${res.counts.devices}개, 레시피 ${res.counts.recipes}개를 가져옵니다. 전체 덮어쓸까요? (취소 시 기존과 병합)`,
+      okText: '덮어쓰기', cancelText: '병합',
+    });
+    const backup = store.applyImport(res.data, replace ? 'replace' : 'merge');
     go('home');
+    ui.toastUndo('가져왔어요', () => { if (store.restoreFrom(backup)) go('home'); });
   };
   reader.readAsText(file);
 }
@@ -394,7 +414,7 @@ function handleImportFile(file) {
 async function reqPersist() {
   const ok = await store.requestPersist();
   persisted = ok || await checkPersisted();
-  alert(persisted ? '저장 영속 권한이 허용됐어요.' : '브라우저가 권한을 허용하지 않았어요. 주기적 백업을 권장해요.');
+  ui.toast(persisted ? '저장 영속 권한이 허용됐어요' : '권한이 거부됐어요. 주기적 백업을 권장해요', persisted ? 'ok' : 'risk');
   render();
 }
 
