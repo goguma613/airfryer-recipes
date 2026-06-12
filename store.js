@@ -1,0 +1,367 @@
+// store.js — 상태 + localStorage I/O + 마이그레이션 + import/export 검증
+// 순수 데이터 계층. DOM 의존 없음.
+
+export const SCHEMA_VERSION = 1;
+const STORAGE_KEY = 'airfryer-recipes';
+
+// ---------------------------------------------------------------------------
+// 기본 구조 / 시드
+// ---------------------------------------------------------------------------
+
+function emptyState() {
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    myDevices: [],
+    recipes: [],
+    settings: {
+      lastBackupAt: null,   // ISO 문자열
+      changeCount: 0,       // 마지막 백업 이후 변경 횟수
+      lastUsed: {},         // recipeId -> { deviceId, amount }
+    },
+  };
+}
+
+// 첫 실행 시드: 기기 1대 + 대표 레시피(복제용 템플릿)
+function seedState() {
+  const s = emptyState();
+  const deviceId = uid();
+  s.myDevices.push({
+    id: deviceId,
+    name: '내 에어프라이어',
+    type: 'basket',          // basket | oven | lid
+    wattage: 1500,
+    capacity: 5,
+    preheat: false,
+    factorOverride: null,
+    memo: '스펙은 실제 기기에 맞게 수정하세요.',
+  });
+
+  const mk = (r) => ({
+    id: uid(),
+    name: r.name,
+    category: r.category,
+    favorite: false,
+    source: r.source || 'package',
+    baseTemp: r.baseTemp,
+    baseTime: r.baseTime,
+    baseAmount: r.baseAmount ?? null,
+    baseDeviceId: deviceId,
+    flip: r.flip ?? true,
+    riskFood: r.riskFood ?? false,
+    targetCoreTemp: r.targetCoreTemp ?? null,
+    startState: r.startState || 'frozen',
+    layering: r.layering || 'single',     // single | stacked
+    loadDensity: r.loadDensity || 'single', // single | half | full
+    steps: r.steps || [],
+    memo: r.memo || '',
+    successLog: [],
+  });
+
+  s.recipes.push(
+    mk({ name: '냉동 감자튀김', category: '냉동식품', baseTemp: 200, baseTime: 15, baseAmount: 300,
+         startState: 'frozen', riskFood: false,
+         steps: [{ atMin: 8, label: '한 번 흔들기' }], memo: '봉지 표기 기준. 바삭하게 하려면 +2~3분.' }),
+    mk({ name: '닭다리(생)', category: '육류', baseTemp: 190, baseTime: 22, baseAmount: 400,
+         startState: 'chilled', riskFood: true, targetCoreTemp: 74,
+         steps: [{ atMin: 12, label: '뒤집기' }], memo: '중심온도 74℃ 확인 필수.' }),
+    mk({ name: '식빵 토스트', category: '베이커리', baseTemp: 180, baseTime: 5, baseAmount: 60,
+         startState: 'room', riskFood: false, flip: true,
+         steps: [{ atMin: 3, label: '뒤집기' }], memo: '' }),
+  );
+  return s;
+}
+
+// ---------------------------------------------------------------------------
+// id 생성
+// ---------------------------------------------------------------------------
+export function uid() {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  // 폴백 (구형 브라우저)
+  return 'id-' + Math.abs(hashStr(String(performance.now()) + ':' + (uid._c = (uid._c || 0) + 1)));
+}
+function hashStr(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) { h = (h << 5) - h + str.charCodeAt(i); h |= 0; }
+  return h;
+}
+
+// ---------------------------------------------------------------------------
+// 마이그레이션
+// ---------------------------------------------------------------------------
+// 버전별 변환 체인. 새 버전이 생기면 케이스 추가.
+export function migrate(data) {
+  let d = data;
+  if (!d || typeof d !== 'object') return seedState();
+  let v = d.schemaVersion || 0;
+
+  // v0 -> v1: 초기. settings 누락 시 보강.
+  if (v < 1) {
+    d.myDevices = Array.isArray(d.myDevices) ? d.myDevices : [];
+    d.recipes = Array.isArray(d.recipes) ? d.recipes : [];
+    d.settings = d.settings || { lastBackupAt: null, changeCount: 0, lastUsed: {} };
+    v = 1;
+  }
+
+  d.schemaVersion = SCHEMA_VERSION;
+  // 누락 필드 보강 (스키마 진화 대비)
+  d.settings = Object.assign({ lastBackupAt: null, changeCount: 0, lastUsed: {} }, d.settings || {});
+  d.recipes = (d.recipes || []).map(normalizeRecipe);
+  d.myDevices = (d.myDevices || []).map(normalizeDevice);
+  return d;
+}
+
+function normalizeDevice(x) {
+  return {
+    id: x.id || uid(),
+    name: x.name || '이름 없음',
+    type: x.type || 'basket',
+    wattage: numOrNull(x.wattage),
+    capacity: numOrNull(x.capacity),
+    preheat: !!x.preheat,
+    factorOverride: x.factorOverride ?? null,
+    memo: x.memo || '',
+  };
+}
+function normalizeRecipe(x) {
+  return {
+    id: x.id || uid(),
+    name: x.name || '이름 없음',
+    category: x.category || '기타',
+    favorite: !!x.favorite,
+    source: x.source || 'manual',
+    baseTemp: numOrNull(x.baseTemp),
+    baseTime: numOrNull(x.baseTime),
+    baseAmount: numOrNull(x.baseAmount),
+    baseDeviceId: x.baseDeviceId || null,
+    flip: x.flip ?? true,
+    riskFood: !!x.riskFood,
+    targetCoreTemp: numOrNull(x.targetCoreTemp),
+    startState: x.startState || 'room',
+    layering: x.layering || 'single',
+    loadDensity: x.loadDensity || 'single',
+    steps: Array.isArray(x.steps) ? x.steps.filter(s => s && typeof s.atMin === 'number') : [],
+    memo: x.memo || '',
+    successLog: Array.isArray(x.successLog) ? x.successLog : [],
+  };
+}
+function numOrNull(v) {
+  if (v === '' || v === null || v === undefined) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+// ---------------------------------------------------------------------------
+// 로드 / 저장
+// ---------------------------------------------------------------------------
+let _state = null;
+
+export function loadState() {
+  if (_state) return _state;
+  let raw = null;
+  try { raw = localStorage.getItem(STORAGE_KEY); } catch (e) { raw = null; }
+  if (!raw) {
+    _state = seedState();
+    persist();
+    return _state;
+  }
+  try {
+    _state = migrate(JSON.parse(raw));
+  } catch (e) {
+    console.error('저장 데이터 파싱 실패, 시드로 대체', e);
+    _state = seedState();
+  }
+  return _state;
+}
+
+export function getState() { return _state || loadState(); }
+
+function persist() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(_state));
+  } catch (e) {
+    console.error('저장 실패 (용량 초과 가능)', e);
+    return false;
+  }
+  return true;
+}
+
+// 변경 후 호출: 저장 + 변경 카운트 증가(백업 넛지용)
+function commit() {
+  _state.settings.changeCount = (_state.settings.changeCount || 0) + 1;
+  return persist();
+}
+
+// 영속 권한 요청 (iOS/브라우저 저장소 삭제 완화)
+export async function requestPersist() {
+  try {
+    if (navigator.storage && navigator.storage.persist) {
+      return await navigator.storage.persist();
+    }
+  } catch (e) { /* noop */ }
+  return false;
+}
+
+// ---------------------------------------------------------------------------
+// 기기 CRUD
+// ---------------------------------------------------------------------------
+export function getDevices() { return getState().myDevices; }
+export function getDevice(id) { return getState().myDevices.find(d => d.id === id) || null; }
+
+export function saveDevice(input) {
+  const s = getState();
+  if (input.id) {
+    const i = s.myDevices.findIndex(d => d.id === input.id);
+    if (i >= 0) s.myDevices[i] = normalizeDevice(input);
+  } else {
+    s.myDevices.push(normalizeDevice(Object.assign({ id: uid() }, input)));
+  }
+  commit();
+  return s.myDevices;
+}
+
+// 기기 삭제: 참조하는 레시피가 있으면 막는다 (dangling 방지)
+export function deleteDevice(id) {
+  const s = getState();
+  const used = s.recipes.filter(r => r.baseDeviceId === id);
+  if (used.length > 0) {
+    return { ok: false, usedBy: used.map(r => r.name) };
+  }
+  s.myDevices = s.myDevices.filter(d => d.id !== id);
+  commit();
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// 레시피 CRUD
+// ---------------------------------------------------------------------------
+export function getRecipes() { return getState().recipes; }
+export function getRecipe(id) { return getState().recipes.find(r => r.id === id) || null; }
+
+export function saveRecipe(input) {
+  const s = getState();
+  if (input.id) {
+    const i = s.recipes.findIndex(r => r.id === input.id);
+    if (i >= 0) s.recipes[i] = normalizeRecipe(Object.assign({}, s.recipes[i], input));
+  } else {
+    s.recipes.push(normalizeRecipe(Object.assign({ id: uid() }, input)));
+  }
+  commit();
+  return s.recipes;
+}
+
+export function deleteRecipe(id) {
+  const s = getState();
+  s.recipes = s.recipes.filter(r => r.id !== id);
+  delete s.settings.lastUsed[id];
+  commit();
+}
+
+export function duplicateRecipe(id) {
+  const s = getState();
+  const r = getRecipe(id);
+  if (!r) return null;
+  const copy = normalizeRecipe(Object.assign({}, r, {
+    id: uid(),
+    name: r.name + ' (복사본)',
+    successLog: [],   // 복제본은 기록 초기화
+    favorite: false,
+  }));
+  s.recipes.push(copy);
+  commit();
+  return copy;
+}
+
+export function toggleFavorite(id) {
+  const r = getRecipe(id);
+  if (r) { r.favorite = !r.favorite; commit(); }
+  return r;
+}
+
+// 성공기록 추가 (닫힌 학습 루프의 입력)
+export function addSuccessLog(recipeId, entry) {
+  const r = getRecipe(recipeId);
+  if (!r) return;
+  r.successLog.push(Object.assign({
+    deviceId: null, actualTemp: null, actualTime: null, actualAmount: null,
+    coreTemp: null, result: 'good', date: new Date().toISOString(),
+  }, entry));
+  commit();
+}
+
+// ---------------------------------------------------------------------------
+// 마지막 사용값 기억 (기기·양 프리셋)
+// ---------------------------------------------------------------------------
+export function rememberLastUsed(recipeId, deviceId, amount) {
+  getState().settings.lastUsed[recipeId] = { deviceId, amount };
+  persist();
+}
+export function getLastUsed(recipeId) {
+  return getState().settings.lastUsed[recipeId] || null;
+}
+
+// ---------------------------------------------------------------------------
+// 백업 (export / import)
+// ---------------------------------------------------------------------------
+export function exportData() {
+  const s = getState();
+  return JSON.stringify({
+    schemaVersion: s.schemaVersion,
+    exportedAt: new Date().toISOString(),
+    myDevices: s.myDevices,
+    recipes: s.recipes,
+    settings: s.settings,
+  }, null, 2);
+}
+
+export function markBackupDone() {
+  const s = getState();
+  s.settings.lastBackupAt = new Date().toISOString();
+  s.settings.changeCount = 0;
+  persist();
+}
+
+// import 검증: 깨진/이상한 파일 거부. 통과 시 마이그레이션된 데이터 반환.
+export function validateImport(text) {
+  let data;
+  try { data = JSON.parse(text); }
+  catch (e) { return { ok: false, error: 'JSON 형식이 아닙니다.' }; }
+  if (!data || typeof data !== 'object') return { ok: false, error: '데이터 구조가 올바르지 않습니다.' };
+  if (!Array.isArray(data.recipes) && !Array.isArray(data.myDevices)) {
+    return { ok: false, error: '레시피/기기 목록을 찾을 수 없습니다.' };
+  }
+  const migrated = migrate(data);
+  return {
+    ok: true,
+    data: migrated,
+    counts: { devices: migrated.myDevices.length, recipes: migrated.recipes.length },
+  };
+}
+
+// import 적용. mode: 'replace'(덮어쓰기) | 'merge'(병합).
+// 적용 전 현재 데이터를 백업 문자열로 반환(되돌리기용).
+export function applyImport(migrated, mode) {
+  const s = getState();
+  const backup = exportData(); // 되돌리기용 현재 스냅샷
+
+  if (mode === 'replace') {
+    s.myDevices = migrated.myDevices;
+    s.recipes = migrated.recipes;
+    s.settings = Object.assign({ lastBackupAt: null, changeCount: 0, lastUsed: {} }, migrated.settings || {});
+  } else { // merge: id 충돌 시 기존 유지(skip)
+    const devIds = new Set(s.myDevices.map(d => d.id));
+    migrated.myDevices.forEach(d => { if (!devIds.has(d.id)) s.myDevices.push(d); });
+    const recIds = new Set(s.recipes.map(r => r.id));
+    migrated.recipes.forEach(r => { if (!recIds.has(r.id)) s.recipes.push(r); });
+  }
+  commit();
+  return backup;
+}
+
+// 되돌리기: applyImport가 반환한 백업 문자열로 복원
+export function restoreFrom(backupText) {
+  try {
+    _state = migrate(JSON.parse(backupText));
+    persist();
+    return true;
+  } catch (e) { return false; }
+}

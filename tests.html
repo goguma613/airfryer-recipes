@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>calc.js 테스트</title>
+  <style>
+    body { font-family: monospace; padding: 20px; }
+    .pass { color: #16a34a; } .fail { color: #dc2626; font-weight: bold; }
+    h1 { font-size: 18px; }
+  </style>
+</head>
+<body>
+  <h1>calc.js 단위 테스트 — 콘솔과 아래에 결과 출력</h1>
+  <div id="out"></div>
+
+  <script type="module">
+    import { adjust, suggestFromHistory, extractFromText, FACTORS } from './calc.js';
+
+    const out = document.getElementById('out');
+    let pass = 0, fail = 0;
+    function ok(name, cond) {
+      const line = document.createElement('div');
+      line.className = cond ? 'pass' : 'fail';
+      line.textContent = (cond ? '✓ PASS  ' : '✗ FAIL  ') + name;
+      out.appendChild(line);
+      console.assert(cond, name);
+      cond ? pass++ : fail++;
+    }
+    function near(a, b, tol = 0.6) { return Math.abs(a - b) <= tol; }
+
+    // 1) 와트비 1.0 + 같은 양 + 실온 → 변화 없음
+    {
+      const r = adjust(
+        { baseTemp: 200, baseTime: 10, baseAmount: 300, baseWattage: 1500, source: 'package', startState: 'room' },
+        { wattage: 1500 }, 300);
+      const mid = (r.timeMin + r.timeMax) / 2;
+      ok('와트비 1.0·동일 양: 온도 유지(200)', r.temp === 200);
+      ok('와트비 1.0·동일 양: 시간 ~10분 유지', near(mid, 10));
+    }
+
+    // 2) 양 2배 → 시간 × 2^0.4 (≈1.32배 → 약 13분)
+    {
+      const r = adjust(
+        { baseTemp: 200, baseTime: 10, baseAmount: 300, baseWattage: 1500, source: 'package', startState: 'room' },
+        { wattage: 1500 }, 600);
+      const mid = (r.timeMin + r.timeMax) / 2;
+      const expected = 10 * Math.pow(2, FACTORS.amountExp);
+      ok(`양 2배: 시간 ~${expected.toFixed(1)}분 (2배 아님)`, near(mid, expected, 0.8));
+    }
+
+    // 3) 오븐 출처 변환: 온도 -20, 시간 ×0.8
+    {
+      const r = adjust(
+        { baseTemp: 200, baseTime: 20, baseAmount: 300, baseWattage: 1500, source: 'oven', startState: 'room' },
+        { wattage: 1500 }, 300);
+      const mid = (r.timeMin + r.timeMax) / 2;
+      ok('오븐 변환: 온도 180℃', r.temp === 180);
+      ok('오븐 변환: 시간 ~16분(20×0.8)', near(mid, 16, 0.8));
+    }
+
+    // 4) 저출력 기기 → 시간 증가 (1500W 기준 → 1000W)
+    {
+      const hi = adjust({ baseTemp: 200, baseTime: 10, baseAmount: 300, baseWattage: 1500, source: 'package', startState: 'room' }, { wattage: 1500 }, 300);
+      const lo = adjust({ baseTemp: 200, baseTime: 10, baseAmount: 300, baseWattage: 1500, source: 'package', startState: 'room' }, { wattage: 1000 }, 300);
+      ok('저출력(1000W) 기기는 시간이 더 길다', (lo.timeMin + lo.timeMax) > (hi.timeMin + hi.timeMax));
+    }
+
+    // 5) 냉동 → 안전마진 + unreliable 플래그
+    {
+      const r = adjust({ baseTemp: 200, baseTime: 10, baseAmount: 300, baseWattage: 1500, source: 'package', startState: 'frozen' }, { wattage: 1500 }, 300);
+      ok('냉동: unreliable=true', r.unreliable === true);
+      ok('냉동: 시간 증가(>10)', (r.timeMin + r.timeMax) / 2 > 10);
+    }
+
+    // 6) suggestFromHistory: 마지막 good 기록 반환
+    {
+      const recipe = { successLog: [
+        { result: 'burnt', deviceId: 'A', actualTemp: 200, actualTime: 12 },
+        { result: 'good', deviceId: 'A', actualTemp: 190, actualTime: 11 },
+        { result: 'good', deviceId: 'B', actualTemp: 180, actualTime: 9 },
+      ]};
+      const s = suggestFromHistory(recipe, 'A');
+      ok('history: 기기 A의 마지막 good(190/11)', s && s.temp === 190 && s.time === 11);
+      ok('history: 기록 없는 기기 → null', suggestFromHistory(recipe, 'Z') === null);
+    }
+
+    // 7) 텍스트 추출
+    {
+      ok('추출: "200도 12분"', JSON.stringify(extractFromText('에어프라이어 200도 12분')) === JSON.stringify({ temp: 200, time: 12 }));
+      ok('추출: "180℃ 8~10분" → 9분', extractFromText('180℃ 8~10분').time === 9);
+      ok('추출: "200°C 15 min"', extractFromText('Cook at 200°C for 15 min').temp === 200);
+      ok('추출: 없음 → null', extractFromText('소금 약간').temp === null);
+    }
+
+    const summary = document.createElement('h1');
+    summary.textContent = `결과: ${pass} 통과 / ${fail} 실패`;
+    summary.style.color = fail ? '#dc2626' : '#16a34a';
+    out.prepend(summary);
+  </script>
+</body>
+</html>

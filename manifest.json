@@ -1,0 +1,16 @@
+{
+  "name": "에어프라이기 레시피 보관함",
+  "short_name": "레시피 보관함",
+  "description": "내 에어프라이기에 맞춰 레시피를 보관하고 조리를 진행하는 개인용 도구",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#fafaf9",
+  "theme_color": "#e8590c",
+  "lang": "ko",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

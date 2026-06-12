@@ -1,0 +1,179 @@
+/* style.css — 모바일 우선. 큰 버튼/고대비(주방에서 멀리서·젖은 손으로 사용) */
+:root {
+  --orange: #e8590c;
+  --orange-dark: #c2410c;
+  --bg: #fafaf9;
+  --card: #ffffff;
+  --line: #e7e5e4;
+  --text: #1c1917;
+  --muted: #78716c;
+  --warn-bg: #fef3c7;
+  --warn-line: #f59e0b;
+  --risk: #dc2626;
+  --tap: 48px;
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; padding: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  background: var(--bg); color: var(--text);
+  font-size: 17px; line-height: 1.5;
+  padding-bottom: calc(72px + env(safe-area-inset-bottom));
+}
+
+#topbar {
+  position: sticky; top: 0; z-index: 10;
+  background: var(--orange); color: #fff;
+  font-weight: 700; font-size: 18px;
+  padding: 14px 16px; padding-top: calc(14px + env(safe-area-inset-top));
+}
+
+#view { padding: 16px; max-width: 720px; margin: 0 auto; }
+
+h1 { font-size: 24px; margin: 4px 0 12px; }
+.section-title { font-size: 16px; color: var(--muted); margin: 22px 0 10px; font-weight: 700; }
+.muted { color: var(--muted); }
+.small { font-size: 14px; }
+.center { text-align: center; }
+
+/* ---- 버튼 ---- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: var(--tap); padding: 12px 18px; margin: 6px 6px 6px 0;
+  border: 1.5px solid var(--line); border-radius: 12px;
+  background: var(--card); color: var(--text);
+  font-size: 16px; font-weight: 600; cursor: pointer;
+}
+.btn:active { transform: scale(0.98); }
+.btn.primary { background: var(--orange); border-color: var(--orange); color: #fff; }
+.btn.danger { color: var(--risk); border-color: #fecaca; }
+.btn.big { width: 100%; min-height: 56px; font-size: 18px; margin-top: 14px; }
+.btn.small { min-height: 38px; padding: 6px 12px; font-size: 14px; }
+.icon-btn { background: none; border: none; font-size: 26px; cursor: pointer; padding: 4px 8px; }
+.link-btn { background: none; border: none; color: var(--orange); font-size: 16px; padding: 8px 0; cursor: pointer; }
+.row-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+.row-btns .btn { flex: 1; margin: 6px 0; }
+
+/* ---- 검색 ---- */
+.search-bar input {
+  width: 100%; min-height: var(--tap); padding: 12px 16px;
+  border: 1.5px solid var(--line); border-radius: 12px; font-size: 16px; background: var(--card);
+}
+
+/* ---- 카드 그리드 ---- */
+.card-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.card {
+  text-align: left; border: 1.5px solid var(--line); border-radius: 14px;
+  background: var(--card); padding: 14px; cursor: pointer; font: inherit; color: inherit;
+}
+.card:active { background: #fff7ed; }
+.card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 6px; }
+.card-name { font-weight: 700; font-size: 16px; }
+.card-meta { color: var(--muted); margin-top: 6px; font-size: 14px; }
+
+.badge {
+  display: inline-block; background: #f5f5f4; color: var(--muted);
+  font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 999px; white-space: nowrap;
+}
+.badge.risk { background: #fee2e2; color: var(--risk); }
+
+/* ---- 빈 상태 ---- */
+.empty { text-align: center; padding: 48px 16px; }
+.empty-emoji { font-size: 56px; }
+.empty h2 { margin: 12px 0 6px; }
+
+/* ---- 상세 ---- */
+.detail-head { display: flex; align-items: center; justify-content: space-between; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0 12px; }
+.kv { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 8px 0; }
+.kv > div {
+  background: var(--card); border: 1.5px solid var(--line); border-radius: 12px; padding: 10px 12px;
+}
+.kv span { display: block; color: var(--muted); font-size: 13px; }
+.kv b { font-size: 19px; }
+.steps { padding-left: 18px; } .steps li { margin: 4px 0; }
+.memo { background: var(--card); border: 1.5px solid var(--line); border-radius: 12px; padding: 12px; white-space: pre-wrap; }
+
+.warn {
+  background: var(--warn-bg); border: 1.5px solid var(--warn-line);
+  border-radius: 12px; padding: 12px 14px; margin: 12px 0; font-size: 15px;
+}
+
+.log { list-style: none; padding: 0; }
+.log li { display: flex; justify-content: space-between; gap: 8px; align-items: center;
+  border-bottom: 1px solid var(--line); padding: 8px 0; flex-wrap: wrap; }
+
+/* ---- 조리 화면 ---- */
+.field { margin: 12px 0; }
+.field label { display: block; font-weight: 600; margin-bottom: 6px; font-size: 15px; }
+.field input, .field select, .field textarea {
+  width: 100%; min-height: var(--tap); padding: 12px; font-size: 16px;
+  border: 1.5px solid var(--line); border-radius: 12px; background: var(--card); color: var(--text);
+}
+.field textarea { min-height: 64px; }
+.field-row { display: flex; gap: 10px; } .field-row .field { flex: 1; }
+.check { display: flex; align-items: center; gap: 8px; margin: 10px 0; font-size: 15px; }
+.check input { width: 22px; height: 22px; }
+
+.suggest { background: #ecfccb; border: 1.5px solid #a3e635; border-radius: 12px; padding: 10px 12px; margin: 10px 0;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+.result-big {
+  background: linear-gradient(135deg, var(--orange), var(--orange-dark)); color: #fff;
+  border-radius: 18px; padding: 24px; text-align: center; margin: 14px 0;
+}
+.result-temp { font-size: 30px; font-weight: 700; }
+.result-time { font-size: 44px; font-weight: 800; line-height: 1.1; }
+.notes { font-size: 14px; color: var(--muted); padding-left: 18px; }
+.notes li { margin: 4px 0; }
+
+/* ---- Cook Mode (전용 전체화면) ---- */
+body.cookmode-on { background: #0c0a09; color: #fff; }
+.cookmode, .result-prompt { text-align: center; padding: 24px 16px; min-height: 70vh;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; }
+.cm-name { font-size: 22px; font-weight: 700; }
+.cm-time { font-size: 88px; font-weight: 800; letter-spacing: 2px; font-variant-numeric: tabular-nums; }
+.cm-step { font-size: 22px; color: #fbbf24; min-height: 28px; font-weight: 700; }
+.cm-controls { display: flex; gap: 10px; width: 100%; max-width: 420px; }
+.cm-controls .btn { flex: 1; background: #292524; color: #fff; border-color: #44403c; margin: 0; }
+.cm-controls .btn.danger { color: #fca5a5; }
+.cm-warn { max-width: 420px; }
+
+.result-prompt h2 { font-size: 22px; }
+.result-choices { display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 420px; }
+.choice { min-height: 64px; font-size: 20px; background: #292524; color: #fff; border-color: #44403c; }
+.result-prompt .field { width: 100%; max-width: 420px; text-align: left; }
+.result-prompt .field input { background: #1c1917; color: #fff; border-color: #44403c; }
+body.cookmode-on .field label { color: #d6d3d1; }
+
+/* ---- 폼 details ---- */
+.paste-box, .more { border: 1.5px solid var(--line); border-radius: 12px; padding: 10px 14px; margin: 12px 0; background: var(--card); }
+.paste-box summary, .more summary { font-weight: 700; cursor: pointer; }
+.paste-box textarea { width: 100%; margin-top: 10px; min-height: 60px; padding: 10px; border: 1.5px solid var(--line); border-radius: 10px; font-size: 16px; }
+
+/* ---- 기기 ---- */
+.dev-item { background: var(--card); border: 1.5px solid var(--line); border-radius: 12px; padding: 12px 14px; margin: 8px 0; }
+
+/* ---- 설정 ---- */
+.info { background: var(--card); border: 1.5px solid var(--line); border-radius: 12px; padding: 14px; margin: 8px 0; font-size: 15px; }
+.nudge { background: var(--warn-bg); border-bottom: 1.5px solid var(--warn-line); padding: 10px 16px; font-size: 15px; cursor: pointer; }
+
+/* ---- 하단 탭 ---- */
+#tabs {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 20;
+  display: flex; background: var(--card); border-top: 1.5px solid var(--line);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+#tabs button {
+  flex: 1; min-height: 64px; background: none; border: none; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  font-size: 12px; font-weight: 600; color: var(--muted);
+}
+#tabs button span { font-size: 24px; }
+#tabs button.active { color: var(--orange); }
+
+/* ---- 데스크톱 ---- */
+@media (min-width: 600px) {
+  .card-grid { grid-template-columns: repeat(3, 1fr); }
+}

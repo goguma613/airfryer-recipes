@@ -1,0 +1,349 @@
+// ui.js — 렌더링(HTML 문자열 생성). 사용자 입력은 esc()로 XSS 방지.
+// 순수 표현 계층: 이벤트 배선은 app.js가 담당(data-action 속성 사용).
+
+// ---- XSS 방지 ----
+export function esc(s) {
+  if (s === null || s === undefined) return '';
+  return String(s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+// ---- 라벨 ----
+export const CATEGORIES = ['냉동식품', '육류', '베이커리', '채소', '해산물', '기타'];
+export const SOURCE_LABEL = { manual: '직접입력', package: '제품봉지', official: '공식매뉴얼', oven: '오븐레시피', experience: '내경험' };
+export const STATE_LABEL = { frozen: '냉동', chilled: '냉장', room: '실온' };
+export const TYPE_LABEL = { basket: '바스켓형', oven: '오븐형', lid: '뚜껑형' };
+export const RESULT_LABEL = { good: '👍 딱좋음', undercooked: '🥶 덜익음', burnt: '🔥 탐' };
+const RISK_CATS = new Set(['육류', '해산물']);
+
+// ---------------------------------------------------------------------------
+// 홈 (레시피 목록)
+// ---------------------------------------------------------------------------
+export function renderHome(recipes, query) {
+  const q = (query || '').trim().toLowerCase();
+  const filtered = q
+    ? recipes.filter(r => r.name.toLowerCase().includes(q) || (r.category || '').toLowerCase().includes(q))
+    : recipes;
+
+  const favs = filtered.filter(r => r.favorite);
+  const recent = filtered.filter(r => !r.favorite).slice(0, 4);
+
+  let html = `
+    <div class="search-bar">
+      <input id="search" type="search" inputmode="search" placeholder="레시피 검색…" value="${esc(query || '')}" aria-label="레시피 검색">
+    </div>`;
+
+  if (recipes.length === 0) {
+    return html + emptyHome();
+  }
+
+  if (!q && favs.length) {
+    html += `<h2 class="section-title">⭐ 즐겨찾기</h2><div class="card-grid">${favs.map(card).join('')}</div>`;
+  }
+  if (!q && recent.length) {
+    html += `<h2 class="section-title">최근/대표</h2><div class="card-grid">${recent.map(card).join('')}</div>`;
+  }
+  if (q) {
+    html += filtered.length
+      ? `<div class="card-grid">${filtered.map(card).join('')}</div>`
+      : `<p class="muted center">"${esc(query)}"에 맞는 레시피가 없어요.</p>`;
+  } else {
+    const rest = filtered.filter(r => !r.favorite).slice(4);
+    if (rest.length) html += `<h2 class="section-title">전체</h2><div class="card-grid">${rest.map(card).join('')}</div>`;
+  }
+  return html;
+}
+
+function emptyHome() {
+  return `
+    <div class="empty">
+      <div class="empty-emoji">🍟</div>
+      <h2>첫 레시피를 추가해보세요</h2>
+      <p class="muted">제품 봉지의 온도·시간을 적어두면, 다음엔 내 기기·양에 맞춰 알아서 보정해줘요.</p>
+      <button class="btn primary big" data-action="go-add">+ 레시피 추가</button>
+    </div>`;
+}
+
+function card(r) {
+  const risk = r.riskFood ? `<span class="badge risk">중심온도</span>` : '';
+  const star = r.favorite ? '⭐' : '';
+  return `
+    <button class="card" data-action="open" data-id="${esc(r.id)}">
+      <div class="card-top">
+        <span class="card-name">${esc(r.name)} ${star}</span>
+        <span class="badge">${esc(r.category)}</span>
+      </div>
+      <div class="card-meta">${esc(r.baseTemp ?? '?')}℃ · ${esc(r.baseTime ?? '?')}분 ${risk}</div>
+    </button>`;
+}
+
+// ---------------------------------------------------------------------------
+// 레시피 상세
+// ---------------------------------------------------------------------------
+export function renderDetail(r, baseDevice) {
+  if (!r) return `<p class="muted center">레시피를 찾을 수 없습니다.</p>`;
+  const steps = r.steps.length
+    ? `<ul class="steps">${r.steps.map(s => `<li><b>${esc(s.atMin)}분</b> 후 — ${esc(s.label)}</li>`).join('')}</ul>`
+    : '<p class="muted">단계 알림 없음</p>';
+
+  const riskBox = r.riskFood ? `
+    <div class="warn">
+      ⚠️ <b>위험식품</b> — 시간은 보조입니다. <b>심부 온도계로 중심온도 ${esc(r.targetCoreTemp || 74)}℃</b>를 확인하세요.
+      ${r.startState === 'frozen' ? '<br>냉동 상태는 속까지 익는 데 시간이 더 걸립니다.' : ''}
+    </div>` : '';
+
+  const log = renderLog(r.successLog);
+
+  return `
+    <div class="detail">
+      <div class="detail-head">
+        <h1>${esc(r.name)}</h1>
+        <button class="icon-btn" data-action="fav" data-id="${esc(r.id)}" aria-label="즐겨찾기">${r.favorite ? '⭐' : '☆'}</button>
+      </div>
+      <div class="chips">
+        <span class="badge">${esc(r.category)}</span>
+        <span class="badge">${esc(SOURCE_LABEL[r.source] || r.source)}</span>
+        <span class="badge">${esc(STATE_LABEL[r.startState] || r.startState)}</span>
+      </div>
+      ${riskBox}
+      <div class="kv">
+        <div><span>기준 온도</span><b>${esc(r.baseTemp ?? '?')}℃</b></div>
+        <div><span>기준 시간</span><b>${esc(r.baseTime ?? '?')}분</b></div>
+        <div><span>기준 양</span><b>${r.baseAmount ? esc(r.baseAmount) + 'g' : '-'}</b></div>
+        <div><span>기준 기기</span><b>${esc(baseDevice ? baseDevice.name : '기기 없음')}</b></div>
+      </div>
+      <h2 class="section-title">단계</h2>
+      ${steps}
+      ${r.memo ? `<h2 class="section-title">메모</h2><p class="memo">${esc(r.memo)}</p>` : ''}
+      <button class="btn primary big" data-action="cook" data-id="${esc(r.id)}">🔥 조리 시작</button>
+      <div class="row-btns">
+        <button class="btn" data-action="edit" data-id="${esc(r.id)}">편집</button>
+        <button class="btn" data-action="dup" data-id="${esc(r.id)}">복제</button>
+        <button class="btn danger" data-action="del" data-id="${esc(r.id)}">삭제</button>
+      </div>
+      <h2 class="section-title">조리 기록</h2>
+      ${log}
+    </div>`;
+}
+
+function renderLog(logs) {
+  if (!logs || !logs.length) return '<p class="muted">아직 기록이 없어요. 조리 후 결과를 남기면 다음 추천이 정확해져요.</p>';
+  return `<ul class="log">${logs.slice().reverse().map(l => `
+    <li>
+      <span>${esc(RESULT_LABEL[l.result] || l.result)}</span>
+      <span class="muted">${esc(l.actualTemp ?? '?')}℃ · ${esc(l.actualTime ?? '?')}분${l.coreTemp ? ' · 중심 ' + esc(l.coreTemp) + '℃' : ''}</span>
+      <span class="muted small">${esc((l.date || '').slice(0, 10))}</span>
+    </li>`).join('')}</ul>`;
+}
+
+// ---------------------------------------------------------------------------
+// 조리 화면(보정 결과)
+// ---------------------------------------------------------------------------
+export function renderCook(r, devices, selectedDeviceId, amount, result, suggestion) {
+  const devOpts = devices.map(d =>
+    `<option value="${esc(d.id)}" ${d.id === selectedDeviceId ? 'selected' : ''}>${esc(d.name)} (${esc(d.wattage || '?')}W)</option>`
+  ).join('');
+
+  const sugg = suggestion ? `
+    <div class="suggest">
+      💡 이 기기에서 마지막 성공: <b>${esc(suggestion.temp)}℃ · ${esc(suggestion.time)}분</b>
+      <button class="btn small" data-action="use-suggest">이 값 쓰기</button>
+    </div>` : '';
+
+  const notes = result.notes.length
+    ? `<ul class="notes">${result.notes.map(n => `<li>${esc(n)}</li>`).join('')}</ul>` : '';
+
+  const riskBox = r.riskFood ? `
+    <div class="warn">
+      ⚠️ <b>중심온도 ${esc(r.targetCoreTemp || 74)}℃ 확인 필수.</b> 아래 시간은 시작점일 뿐, 속까지 익었는지로 판단하세요.
+    </div>` : `<p class="muted small">아래 값은 추정 시작점입니다. 중간에 한 번 확인하세요.</p>`;
+
+  return `
+    <div class="cook">
+      <button class="link-btn" data-action="back-detail" data-id="${esc(r.id)}">← ${esc(r.name)}</button>
+      <div class="field">
+        <label>어느 기기로?</label>
+        <select id="cook-device">${devOpts || '<option>기기를 먼저 등록하세요</option>'}</select>
+      </div>
+      <div class="field">
+        <label>양 (g) — 기준 ${esc(r.baseAmount || '?')}g</label>
+        <input id="cook-amount" type="number" inputmode="numeric" value="${esc(amount ?? r.baseAmount ?? '')}" placeholder="${esc(r.baseAmount || '')}">
+      </div>
+      ${sugg}
+      <div class="result-big">
+        <div class="result-temp">${esc(result.temp)}℃</div>
+        <div class="result-time">${esc(result.timeMin)}~${esc(result.timeMax)}분</div>
+      </div>
+      ${riskBox}
+      ${notes}
+      <button class="btn primary big" data-action="start-timer" data-id="${esc(r.id)}">⏱ ${esc(result.timeMin)}분 타이머 시작</button>
+    </div>`;
+}
+
+// ---------------------------------------------------------------------------
+// Cook Mode (큰 타이머 전용 화면)
+// ---------------------------------------------------------------------------
+export function renderCookMode(r, timeStr, stepMsg) {
+  return `
+    <div class="cookmode">
+      <div class="cm-name">${esc(r.name)}</div>
+      <div class="cm-time" id="cm-time">${esc(timeStr)}</div>
+      <div class="cm-step" id="cm-step">${esc(stepMsg || '')}</div>
+      <div class="cm-controls">
+        <button class="btn big" data-action="cm-add" data-sec="60">+1분</button>
+        <button class="btn big" data-action="cm-pause" id="cm-pause">일시정지</button>
+        <button class="btn big danger" data-action="cm-stop">정지</button>
+      </div>
+      ${r.riskFood ? `<div class="warn cm-warn">⚠️ 중심온도 ${esc(r.targetCoreTemp || 74)}℃ 확인 필수</div>` : ''}
+    </div>`;
+}
+
+// 타이머 종료 후 결과 3택
+export function renderResultPrompt(r) {
+  return `
+    <div class="result-prompt">
+      <h2>${esc(r.name)} — 어땠어요?</h2>
+      <div class="result-choices">
+        <button class="btn big choice" data-action="result" data-id="${esc(r.id)}" data-result="good">👍 딱좋음</button>
+        <button class="btn big choice" data-action="result" data-id="${esc(r.id)}" data-result="undercooked">🥶 덜익음</button>
+        <button class="btn big choice" data-action="result" data-id="${esc(r.id)}" data-result="burnt">🔥 탐</button>
+      </div>
+      <div class="field">
+        <label>다음엔 시간 조정 (분, 선택)</label>
+        <input id="result-adjust" type="number" inputmode="numeric" placeholder="예: +2 또는 -1">
+      </div>
+      ${r.riskFood ? `<div class="field"><label>실측 중심온도 (℃, 선택)</label><input id="result-core" type="number" inputmode="numeric" placeholder="예: 75"></div>` : ''}
+      <button class="btn" data-action="skip-result">건너뛰기</button>
+    </div>`;
+}
+
+// ---------------------------------------------------------------------------
+// 레시피 추가/편집 폼 (Quick Add: 이름·온도·시간만 필수)
+// ---------------------------------------------------------------------------
+export function renderEdit(r, devices) {
+  const isNew = !r;
+  r = r || {};
+  const opt = (val, cur) => `<option value="${esc(val)}" ${val === cur ? 'selected' : ''}>`;
+  const devOpts = devices.map(d => `${opt(d.id, r.baseDeviceId)}${esc(d.name)}</option>`).join('');
+  const catOpts = CATEGORIES.map(c => `${opt(c, r.category || '냉동식품')}${esc(c)}</option>`).join('');
+  const srcOpts = Object.entries(SOURCE_LABEL).map(([k, v]) => `${opt(k, r.source || 'package')}${esc(v)}</option>`).join('');
+  const stOpts = Object.entries(STATE_LABEL).map(([k, v]) => `${opt(k, r.startState || 'room')}${esc(v)}</option>`).join('');
+
+  return `
+    <div class="edit">
+      <h1>${isNew ? '레시피 추가' : '레시피 편집'}</h1>
+      <input type="hidden" id="f-id" value="${esc(r.id || '')}">
+
+      <details class="paste-box">
+        <summary>📋 봉지/사이트 텍스트 붙여넣기 → 자동 채우기</summary>
+        <textarea id="f-paste" rows="3" placeholder="예) 에어프라이어 200도에서 12분간 조리하세요"></textarea>
+        <button class="btn small" data-action="extract">온도·시간 추출</button>
+      </details>
+
+      <div class="field"><label>이름 *</label><input id="f-name" value="${esc(r.name || '')}" placeholder="예: 냉동 치킨너겟"></div>
+      <div class="field-row">
+        <div class="field"><label>온도(℃) *</label><input id="f-temp" type="number" inputmode="numeric" value="${esc(r.baseTemp ?? '')}"></div>
+        <div class="field"><label>시간(분) *</label><input id="f-time" type="number" inputmode="numeric" value="${esc(r.baseTime ?? '')}"></div>
+      </div>
+
+      <details class="more">
+        <summary>상세 옵션 (선택)</summary>
+        <div class="field-row">
+          <div class="field"><label>카테고리</label><select id="f-cat">${catOpts}</select></div>
+          <div class="field"><label>기준 양(g)</label><input id="f-amount" type="number" inputmode="numeric" value="${esc(r.baseAmount ?? '')}"></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>출처</label><select id="f-src">${srcOpts}</select></div>
+          <div class="field"><label>시작 상태</label><select id="f-state">${stOpts}</select></div>
+        </div>
+        <div class="field"><label>기준 기기</label><select id="f-device">${devOpts || '<option value="">기기 없음</option>'}</select></div>
+        <label class="check"><input id="f-risk" type="checkbox" ${r.riskFood ? 'checked' : ''}> 위험식품(닭·돼지·다짐육·생선·달걀) — 중심온도 확인 필요</label>
+        <div class="field"><label>목표 중심온도(℃)</label><input id="f-core" type="number" inputmode="numeric" value="${esc(r.targetCoreTemp ?? '')}" placeholder="닭 74 / 다짐육 71 / 통살 63"></div>
+        <label class="check"><input id="f-flip" type="checkbox" ${r.flip ?? true ? 'checked' : ''}> 중간에 뒤집기/흔들기</label>
+        <div class="field"><label>단계 알림 (한 줄에 "분,내용")</label>
+          <textarea id="f-steps" rows="2" placeholder="예)&#10;8,흔들기&#10;15,뒤집기">${esc((r.steps || []).map(s => `${s.atMin},${s.label}`).join('\n'))}</textarea></div>
+        <div class="field"><label>메모</label><textarea id="f-memo" rows="2">${esc(r.memo || '')}</textarea></div>
+      </details>
+
+      <button class="btn primary big" data-action="save-recipe">저장</button>
+      <button class="btn" data-action="cancel-edit">취소</button>
+    </div>`;
+}
+
+// ---------------------------------------------------------------------------
+// 기기 관리
+// ---------------------------------------------------------------------------
+export function renderDevices(devices) {
+  const list = devices.length
+    ? devices.map(d => `
+        <div class="dev-item">
+          <div><b>${esc(d.name)}</b> <span class="muted">${esc(TYPE_LABEL[d.type] || d.type)} · ${esc(d.wattage || '?')}W${d.capacity ? ' · ' + esc(d.capacity) + 'L' : ''}</span></div>
+          <div class="row-btns">
+            <button class="btn small" data-action="dev-edit" data-id="${esc(d.id)}">편집</button>
+            <button class="btn small danger" data-action="dev-del" data-id="${esc(d.id)}">삭제</button>
+          </div>
+        </div>`).join('')
+    : '<p class="muted">등록된 기기가 없어요.</p>';
+  return `
+    <div class="devices">
+      <h1>내 기기</h1>
+      ${list}
+      <button class="btn primary" data-action="dev-add">+ 기기 추가</button>
+    </div>`;
+}
+
+export function renderDeviceForm(d) {
+  const isNew = !d; d = d || {};
+  const tOpt = (k, v) => `<option value="${esc(k)}" ${k === (d.type || 'basket') ? 'selected' : ''}>${esc(v)}</option>`;
+  return `
+    <div class="dev-form">
+      <h1>${isNew ? '기기 추가' : '기기 편집'}</h1>
+      <input type="hidden" id="d-id" value="${esc(d.id || '')}">
+      <div class="field"><label>이름 *</label><input id="d-name" value="${esc(d.name || '')}" placeholder="예: 필립스 XL"></div>
+      <div class="field"><label>타입</label><select id="d-type">${Object.entries(TYPE_LABEL).map(([k, v]) => tOpt(k, v)).join('')}</select></div>
+      <div class="field-row">
+        <div class="field"><label>출력(W) *</label><input id="d-watt" type="number" inputmode="numeric" value="${esc(d.wattage ?? '')}" placeholder="예: 1500"></div>
+        <div class="field"><label>용량(L)</label><input id="d-cap" type="number" inputmode="numeric" value="${esc(d.capacity ?? '')}"></div>
+      </div>
+      <label class="check"><input id="d-preheat" type="checkbox" ${d.preheat ? 'checked' : ''}> 예열 후 사용</label>
+      <div class="field"><label>메모</label><textarea id="d-memo" rows="2">${esc(d.memo || '')}</textarea></div>
+      <button class="btn primary big" data-action="save-device">저장</button>
+      <button class="btn" data-action="cancel-device">취소</button>
+    </div>`;
+}
+
+// ---------------------------------------------------------------------------
+// 설정
+// ---------------------------------------------------------------------------
+export function renderSettings(settings, persisted) {
+  const last = settings.lastBackupAt ? settings.lastBackupAt.slice(0, 10) : '없음';
+  const needBackup = (settings.changeCount || 0) >= 5;
+  return `
+    <div class="settings">
+      <h1>설정</h1>
+
+      <h2 class="section-title">백업 (중요)</h2>
+      <div class="info">
+        이 앱의 데이터는 <b>이 브라우저에만</b> 저장돼요. 브라우저 데이터를 지우거나
+        오랫동안 안 열면 사라질 수 있어요. 주기적으로 내보내기로 백업하세요.
+        <br>마지막 백업: <b>${esc(last)}</b>${needBackup ? ' <span class="badge risk">백업 권장</span>' : ''}
+        <br>저장 영속 권한: <b>${persisted ? '허용됨' : '미허용'}</b>
+      </div>
+      <button class="btn primary" data-action="export">📤 내보내기 (JSON)</button>
+      <button class="btn" data-action="import-pick">📥 가져오기</button>
+      <input id="import-file" type="file" accept="application/json,.json" hidden>
+      <button class="btn" data-action="req-persist">저장 영속 권한 요청</button>
+
+      <h2 class="section-title">기기</h2>
+      <button class="btn" data-action="go-devices">내 기기 관리</button>
+
+      <h2 class="section-title">정보</h2>
+      <p class="muted small">조리값은 추정 시작점입니다. 특히 닭·돼지·다짐육은 중심온도로 익힘을 판단하세요.</p>
+    </div>`;
+}
+
+export function backupNudge(settings) {
+  if ((settings.changeCount || 0) < 5) return '';
+  return `<div class="nudge" data-action="go-settings">💾 변경사항이 쌓였어요. 백업하시겠어요? <b>설정 →</b></div>`;
+}
