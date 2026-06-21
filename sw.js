@@ -1,5 +1,5 @@
 // sw.js — 오프라인 캐시. 버전 올리면 옛 캐시 자동 정리(유령 버전 방지).
-const CACHE = 'airfryer-v3';
+const CACHE = 'airfryer-v4';
 const ASSETS = [
   './',
   './index.html',
@@ -27,11 +27,14 @@ self.addEventListener('activate', (e) => {
   );
 });
 
-// 네트워크 우선, 실패 시 캐시 (코드 수정이 빨리 반영되도록)
+// 우리 앱 파일(동일 출처)만 가로채 '항상 서버 최신'으로 가져온다 — HTTP 캐시까지 우회(no-store).
+// → git push 후 새로고침 한 번이면 바로 반영. 네트워크 실패(오프라인)일 때만 캐시로 폴백.
+// 외부 리소스(Firebase SDK·폰트 등 버전 고정·불변)는 가로채지 않고 브라우저 기본 캐시를 쓴다(빠름).
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
+  if (new URL(e.request.url).origin !== self.location.origin) return;
   e.respondWith(
-    fetch(e.request)
+    fetch(e.request, { cache: 'no-store' })
       .then(res => {
         const copy = res.clone();
         caches.open(CACHE).then(c => c.put(e.request, copy)).catch(() => {});
