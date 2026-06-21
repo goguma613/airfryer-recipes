@@ -33,8 +33,14 @@ export async function initSync(callbacks) {
     auth = authMod.getAuth(app);
     db = fsMod.getFirestore(app);
     provider = new authMod.GoogleAuthProvider();
+    // 로그아웃 후 다시 로그인할 때 이전 계정이 자동 선택되지 않도록 항상 계정 선택창을 띄운다.
+    provider.setCustomParameters({ prompt: 'select_account' });
     _ready = true;
-    authMod.getRedirectResult(auth).catch(() => {});  // 모바일 redirect 복귀 처리
+    // 모바일 redirect 복귀 처리. 실패를 조용히 삼키지 말고 상태로 노출한다.
+    authMod.getRedirectResult(auth).catch((e) => {
+      console.warn('redirect 로그인 결과 처리 실패', e);
+      emit('error', (e && e.code) || 'redirect');
+    });
     authMod.onAuthStateChanged(auth, (user) => {
       _user = user;
       _cb.onUser && _cb.onUser(user);

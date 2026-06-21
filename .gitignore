@@ -2,3 +2,6 @@
 .DS_Store
 Thumbs.db
 *.log
+
+# 로컬 개발 설정 (배포에 불필요)
+.claude/
