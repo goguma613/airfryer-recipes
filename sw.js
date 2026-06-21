@@ -1,5 +1,5 @@
 // sw.js — 오프라인 캐시. 버전 올리면 옛 캐시 자동 정리(유령 버전 방지).
-const CACHE = 'airfryer-v2';
+const CACHE = 'airfryer-v3';
 const ASSETS = [
   './',
   './index.html',
