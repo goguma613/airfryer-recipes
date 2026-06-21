@@ -188,7 +188,7 @@ export function loadState() {
   let raw = null;
   try { raw = localStorage.getItem(STORAGE_KEY); } catch (e) { raw = null; }
   if (!raw) {
-    _state = seedState();
+    _state = emptyState();   // 시드는 boot에서 조건부로(로그인 사용자엔 안 함) → 샘플 재유입 버그 방지
     persist();
     return _state;
   }
@@ -213,6 +213,24 @@ function gcTombstones() {
 }
 
 export function getState() { return _state || loadState(); }
+
+// 샘플(시드) 데이터는 '진짜 첫 사용'에만 1회 주입. 데이터가 이미 있거나(삭제 tombstone 포함)
+// 이미 시드한 적 있으면 건너뛴다. 로그인 사용자에겐 호출하지 않는다(클라우드가 진실원 →
+// 기기 추가/저장소 초기화 때마다 샘플이 재유입되던 버그 방지). 반환: 시드했으면 true.
+const SEEDED_KEY = 'airfryer-seeded';
+export function seedIfNeeded() {
+  const s = getState();
+  const hasAny = (s.recipes && s.recipes.length) || (s.myDevices && s.myDevices.length);
+  let seededBefore = false;
+  try { seededBefore = !!localStorage.getItem(SEEDED_KEY); } catch (e) {}
+  if (hasAny || seededBefore) return false;
+  const seed = seedState();
+  s.myDevices = seed.myDevices;
+  s.recipes = seed.recipes;
+  try { localStorage.setItem(SEEDED_KEY, '1'); } catch (e) {}
+  persist();
+  return true;
+}
 
 function persist() {
   try {
@@ -437,7 +455,7 @@ export function addSuccessLog(recipeId, entry) {
   r.successLog.push(Object.assign({
     id: uid(),   // 머지 union 키
     deviceId: null, actualTemp: null, actualTime: null, actualAmount: null,
-    coreTemp: null, result: 'good', date: new Date().toISOString(),
+    coreTemp: null, result: 'good', nextAdjust: null, date: new Date().toISOString(),
   }, entry));
   r.updatedAt = now();
   commit();

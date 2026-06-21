@@ -34,15 +34,29 @@ async function boot() {
     onUser: (user) => {
       syncUser = user;
       if (user) ui.toast(`${user.displayName || user.email}(으)로 동기화 켜짐`, 'ok');
+      else maybeSeedLocal();   // 비로그인 → 로컬 온보딩 샘플(최초 1회)
       if (nav.screen === 'settings') render();
     },
     onInitialRemote: (data) => { const r = store.mergeRemote(data); if (r.changed) refreshIfVisible(); },
     onAfterInitial: () => sync.pushData(store.getFullData()),
     onRemoteData: (data) => handleRemote(data),
-    onStatus: (status) => { syncStatus = status; if (nav.screen === 'settings') render(); },
+    onStatus: (status) => {
+      syncStatus = status;
+      if (status === 'offline' || status === 'unconfigured') maybeSeedLocal();  // 클라우드 못 쓰는 신규 → 로컬 시드
+      if (nav.screen === 'settings') render();
+    },
   });
 
   go('home');
+}
+
+// 샘플 시드: 로그인 안 한 신규 사용자에게만 최초 1회. 로그인 상태면 클라우드가 진실원이라
+// 시드하지 않는다(샘플이 기기마다·초기화마다 재유입되던 버그 방지).
+let triedSeed = false;
+function maybeSeedLocal() {
+  if (triedSeed || syncUser) return;
+  triedSeed = true;
+  if (store.seedIfNeeded() && nav.screen === 'home') render();
 }
 
 // 입력이 있는 화면(편집/조리)에선 원격 변경을 즉시 적용하면 미저장 입력이 날아간다.
@@ -352,16 +366,21 @@ function saveResult(id, result) {
   const adjEl = document.getElementById('result-adjust');
   const coreEl = document.getElementById('result-core');
   const adj = adjEl && adjEl.value ? Number(adjEl.value) : 0;
-  const actualTime = (cook.time || 0) + (Number.isFinite(adj) ? adj : 0);
   store.addSuccessLog(id, {
     deviceId: cook.deviceId,
     actualTemp: cook.temp,
-    actualTime: actualTime,
+    actualTime: cook.time || null,       // 실제 사용한 시간(정직)
     actualAmount: cook.amount,
     coreTemp: coreEl && coreEl.value ? Number(coreEl.value) : null,
     result,
+    nextAdjust: Number.isFinite(adj) && adj !== 0 ? adj : null,  // 다음 추천 보정값(학습 입력)
   });
   timer = null;
+  // 학습 루프 가시화: 무엇을 배웠는지 알려준다
+  const msg = result === 'undercooked' ? '기록했어요. 다음엔 시간을 더 늘려 추천할게요'
+    : result === 'burnt' ? '기록했어요. 다음엔 시간을 줄여 추천할게요'
+    : '기록했어요. 다음에 이 값을 추천할게요 👍';
+  ui.toast(msg, 'ok');
   go('detail', id);
 }
 

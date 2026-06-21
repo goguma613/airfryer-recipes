@@ -26,6 +26,10 @@ export const CORE_TEMPS = {
 };
 
 function round1(n) { return Math.round(n); }
+function avg(arr) {
+  const ns = arr.map(Number).filter(Number.isFinite);
+  return ns.length ? ns.reduce((a, b) => a + b, 0) / ns.length : 0;
+}
 
 /**
  * 조리값 보정.
@@ -48,7 +52,7 @@ export function adjust(baseline, target, targetAmount, factors = FACTORS) {
     const drop = baseline.convection ? f.ovenTempDropConvection : f.ovenTempDrop;
     temp -= drop;
     time *= f.ovenTimeMult;
-    notes.push(`오븐 레시피 변환: 온도 -${drop}℃, 시간 ×${f.ovenTimeMult}`);
+    notes.push(`오븐 → 에어프라이어라서 온도를 ${drop}℃ 낮추고 시간을 ${Math.round(f.ovenTimeMult * 100)}%로 줄였어요.`);
   }
 
   // 2) 양 보정 (무게 기반 — 거친 추정)
@@ -57,8 +61,8 @@ export function adjust(baseline, target, targetAmount, factors = FACTORS) {
   if (baseAmt > 0 && tgtAmt > 0 && baseAmt !== tgtAmt) {
     const ratio = tgtAmt / baseAmt;
     time *= Math.pow(ratio, f.amountExp);
-    notes.push(`양 보정: ${baseAmt}g→${tgtAmt}g (×${ratio.toFixed(2)}^${f.amountExp})`);
-    if (ratio > 1.5) notes.push('양이 많이 늘었습니다 — 한 겹으로 펴고 중간에 더 자주 확인하세요.');
+    notes.push(`양이 ${baseAmt}g → ${tgtAmt}g이라 시간을 ${ratio > 1 ? '늘렸' : '줄였'}어요.`);
+    if (ratio > 1.5) notes.push('양이 많이 늘었어요 — 한 겹으로 펴고 중간에 더 자주 확인하세요.');
   }
 
   // 3) 와트 보정 (약한 축 — 작게만)
@@ -66,13 +70,13 @@ export function adjust(baseline, target, targetAmount, factors = FACTORS) {
   const tw = target && Number(target.wattage);
   if (bw > 0 && tw > 0 && bw !== tw) {
     time *= Math.pow(bw / tw, f.wattExp);
-    notes.push(`기기 출력 보정: ${bw}W→${tw}W (참고값)`);
+    notes.push(`기기 출력이 ${bw}W → ${tw}W라 시간을 ${tw < bw ? '조금 늘렸' : '조금 줄였'}어요 (영향은 작아요).`);
   }
 
   // 4) 냉동 시작: 안전 마진 + 경고 (시간만 믿지 말 것)
   if (baseline.startState === 'frozen') {
     time *= (1 + f.frozenExtra);
-    notes.push('냉동 상태: 안전 마진 +시간. 시간보다 중심온도/속까지 익었는지로 판단하세요.');
+    notes.push('냉동이라 안전 마진으로 시간을 늘렸어요. 시간보다 속까지 익었는지로 판단하세요.');
     unreliable = true;
   }
 
@@ -96,12 +100,38 @@ export function adjust(baseline, target, targetAmount, factors = FACTORS) {
  */
 export function suggestFromHistory(recipe, deviceId) {
   if (!recipe || !Array.isArray(recipe.successLog)) return null;
-  const goods = recipe.successLog
-    .filter(l => l.result === 'good' && (!deviceId || l.deviceId === deviceId))
+  // 닫힌 학습 루프 + 다회 집계(회귀 아님 — 데이터 적어 단순 규칙):
+  //  · 마지막이 성공이면 최근 성공 최대 3번을 평균내 한 번의 변동을 흡수해 안정화.
+  //  · 마지막이 실패면 그 시도를 기준으로 보정(사용자가 적은 '다음엔 ±분'이 최우선).
+  const logs = recipe.successLog
+    .filter(l => (!deviceId || l.deviceId === deviceId))
     .filter(l => l.actualTemp != null && l.actualTime != null);
-  if (goods.length === 0) return null;
-  const last = goods[goods.length - 1];
-  return { temp: last.actualTemp, time: last.actualTime, amount: last.actualAmount, date: last.date };
+  if (logs.length === 0) return null;
+  const last = logs[logs.length - 1];
+  const sign = (n) => (n > 0 ? '+' : '') + n;
+
+  if (last.result === 'good') {
+    const recent = logs.filter(l => l.result === 'good').slice(-3);
+    const temp = Math.round(avg(recent.map(g => g.actualTemp)));
+    const time = Math.round(avg(recent.map(g => g.actualTime)));
+    const reason = recent.length >= 2 ? `최근 성공 ${recent.length}번 평균` : '지난번 딱 좋았던 값';
+    return { temp, time, amount: last.actualAmount, date: last.date, result: 'good', reason, count: recent.length };
+  }
+
+  const temp = Number(last.actualTemp);
+  let time = Number(last.actualTime);
+  const adj = Number(last.nextAdjust);
+  let reason;
+  if (Number.isFinite(adj) && adj !== 0) {
+    time = Math.max(1, time + adj);
+    reason = last.result === 'undercooked' ? `지난번 덜 익어서 ${sign(adj)}분 제안`
+      : `지난번 타서 ${sign(adj)}분 제안`;
+  } else {
+    const step = Math.max(2, Math.round(time * 0.12));
+    if (last.result === 'undercooked') { time = time + step; reason = `지난번 덜 익어서 +${step}분 제안`; }
+    else { time = Math.max(1, time - step); reason = `지난번 타서 -${step}분 제안`; }
+  }
+  return { temp, time, amount: last.actualAmount, date: last.date, result: last.result, reason, count: logs.length };
 }
 
 // 텍스트에서 온도/시간 자동추출 (봉지/사이트 붙여넣기용, 오프라인 정규식)

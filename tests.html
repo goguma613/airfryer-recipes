@@ -85,6 +85,21 @@
       ok('history: 기록 없는 기기 → null', suggestFromHistory(recipe, 'Z') === null);
     }
 
+    // 6-2) 닫힌 학습 루프: 덜익음/탐/사용자조정 반영
+    {
+      const under = suggestFromHistory({ successLog: [{ result: 'undercooked', deviceId: 'A', actualTemp: 200, actualTime: 10 }] }, 'A');
+      ok('학습: 덜익음 → 시간 증가 제안(>10)', under && under.time > 10);
+      const burnt = suggestFromHistory({ successLog: [{ result: 'burnt', deviceId: 'A', actualTemp: 200, actualTime: 12 }] }, 'A');
+      ok('학습: 탐 → 시간 감소 제안(<12)', burnt && burnt.time < 12);
+      const adj = suggestFromHistory({ successLog: [{ result: 'undercooked', deviceId: 'A', actualTemp: 200, actualTime: 10, nextAdjust: 5 }] }, 'A');
+      ok('학습: 사용자 조정 +5 우선 → 15분', adj && adj.time === 15);
+      const avgS = suggestFromHistory({ successLog: [
+        { result: 'good', deviceId: 'A', actualTemp: 190, actualTime: 24 },
+        { result: 'good', deviceId: 'A', actualTemp: 190, actualTime: 26 },
+      ]}, 'A');
+      ok('학습: 최근 성공 2번 평균(25분) + 평균 표기', avgS && avgS.time === 25 && /평균/.test(avgS.reason));
+    }
+
     // 7) 텍스트 추출
     {
       ok('추출: "200도 12분"', JSON.stringify(extractFromText('에어프라이어 200도 12분')) === JSON.stringify({ temp: 200, time: 12 }));

@@ -275,6 +275,28 @@ h1 { font-size: var(--fs-2xl); margin: var(--sp-1) 0 var(--sp-3); font-weight: 8
 .notes { font-size: var(--fs-sm); color: var(--muted); padding-left: var(--sp-5); }
 .notes li { margin: var(--sp-1) 0; }
 
+/* 보정 근거 카드 — 원본 → 내 기기 비교 + 왜 (신뢰 차별화) */
+.adjust-card { background: var(--card); border: 1px solid var(--line); border-radius: var(--r-xl);
+  padding: var(--sp-3) var(--sp-4) var(--sp-4); margin: var(--sp-4) 0; box-shadow: var(--shadow-xs); }
+.adjust-from { text-align: center; color: var(--muted); font-size: var(--fs-sm); }
+.adjust-to-label { text-align: center; color: var(--text-2); font-size: var(--fs-sm); margin-top: 2px; }
+.adjust-to-label b { color: var(--primary); }
+.adjust-card .result-big { margin: var(--sp-3) 0 var(--sp-2); padding: var(--sp-4); }
+.why { margin-top: var(--sp-2); }
+.why-title { font-weight: 700; font-size: var(--fs-sm); color: var(--text-2); margin-bottom: 4px; }
+.why ul { margin: 0; padding-left: var(--sp-5); font-size: var(--fs-sm); color: var(--muted); }
+.why li { margin: var(--sp-1) 0; }
+.why-none { font-size: var(--fs-sm); color: var(--muted); text-align: center; margin: var(--sp-2) 0 0; }
+
+/* 안전 모듈 — 조리 완료 후 위험식품 중심온도 확인(다크 Cook Mode 배경 위) */
+.safety-gate { width: 100%; max-width: 460px; text-align: left; color: #fff;
+  background: hsl(2 60% 26%); border: 1px solid hsl(2 64% 46%); border-left: 5px solid #f0c24a;
+  border-radius: var(--r-lg); padding: var(--sp-4); }
+.safety-title { font-weight: 800; font-size: var(--fs-lg); margin-bottom: var(--sp-2); }
+.safety-gate p { margin: var(--sp-2) 0 0; font-size: var(--fs-base); line-height: 1.45; }
+.safety-gate b { color: #ffd680; }
+.safety-gate .disclaimer { font-size: var(--fs-sm); color: #f3cfcf; }
+
 /* ── Cook Mode (다크: 토큰 오버라이드) ── */
 body.cookmode-on {
   --bg: #17120e; --bg-soft: #231c16; --card: #231c16; --card-hover: #2e251d;

@@ -151,12 +151,16 @@ export function renderCook(r, devices, selectedDeviceId, amount, result, suggest
 
   const sugg = suggestion ? `
     <div class="suggest">
-      💡 이 기기에서 마지막 성공: <b>${esc(suggestion.temp)}℃ · ${esc(suggestion.time)}분</b>
+      💡 ${esc(suggestion.reason || '지난 기록 기반')}: <b>${esc(suggestion.temp)}℃ · ${esc(suggestion.time)}분</b>
       <button class="btn small" data-action="use-suggest">이 값 쓰기</button>
     </div>` : '';
 
-  const notes = result.notes.length
-    ? `<ul class="notes">${result.notes.map(n => `<li>${esc(n)}</li>`).join('')}</ul>` : '';
+  const sel = devices.find(d => d.id === selectedDeviceId);
+  const deviceName = sel ? sel.name : '선택한 기기';
+  const baseLine = `원본 ${esc(r.baseTemp ?? '?')}℃ · ${esc(r.baseTime ?? '?')}분${r.baseAmount ? ` · ${esc(r.baseAmount)}g` : ''}`;
+  const why = result.notes.length
+    ? `<div class="why"><div class="why-title">왜 이 값인가요?</div><ul>${result.notes.map(n => `<li>${esc(n)}</li>`).join('')}</ul></div>`
+    : `<p class="why-none">이 기기·이 양에는 추가 보정이 없어요. 구간은 안전 여유 ±15%입니다.</p>`;
 
   const riskBox = r.riskFood ? `
     <div class="warn">
@@ -175,12 +179,16 @@ export function renderCook(r, devices, selectedDeviceId, amount, result, suggest
         <input id="cook-amount" type="number" inputmode="numeric" value="${esc(amount ?? r.baseAmount ?? '')}" placeholder="${esc(r.baseAmount || '')}">
       </div>
       ${sugg}
-      <div class="result-big">
-        <div class="result-temp">${esc(result.temp)}℃</div>
-        <div class="result-time">${esc(result.timeMin)}~${esc(result.timeMax)}분</div>
+      <div class="adjust-card">
+        <div class="adjust-from">${baseLine}</div>
+        <div class="adjust-to-label">↓ <b>${esc(deviceName)}</b> 기준으로 보정</div>
+        <div class="result-big">
+          <div class="result-temp">${esc(result.temp)}℃</div>
+          <div class="result-time">${esc(result.timeMin)}~${esc(result.timeMax)}분</div>
+        </div>
+        ${why}
       </div>
       ${riskBox}
-      ${notes}
       <button class="btn primary big" data-action="start-timer" data-id="${esc(r.id)}">⏱ ${esc(result.timeMin)}분 타이머 시작</button>
     </div>`;
 }
@@ -205,8 +213,16 @@ export function renderCookMode(r, timeStr, stepMsg) {
 
 // 타이머 종료 후 결과 3택
 export function renderResultPrompt(r) {
+  const core = esc(r.targetCoreTemp || 74);
+  const safety = r.riskFood ? `
+    <div class="safety-gate">
+      <div class="safety-title">🌡️ 먹기 전 안전 확인</div>
+      <p>가장 두꺼운 부위를 온도계로 찔러 <b>중심온도 ${core}℃ 이상</b>인지 확인하세요. 덜 익었으면 다시 더 익히세요.</p>
+      <p class="disclaimer">앱의 시간·온도는 <b>추정 가이드</b>예요. 익힘 판단은 반드시 실제 중심온도로 하세요.</p>
+    </div>` : '';
   return `
     <div class="result-prompt">
+      ${safety}
       <h2>${esc(r.name)} — 어땠어요?</h2>
       <div class="result-choices">
         <button class="btn choice" data-action="result" data-id="${esc(r.id)}" data-result="good"><span class="emoji">👍</span>딱좋음</button>
@@ -217,7 +233,7 @@ export function renderResultPrompt(r) {
         <label>다음엔 시간 조정 (분, 선택)</label>
         <input id="result-adjust" type="number" inputmode="numeric" placeholder="예: +2 또는 -1">
       </div>
-      ${r.riskFood ? `<div class="field"><label>실측 중심온도 (℃, 선택)</label><input id="result-core" type="number" inputmode="numeric" placeholder="예: 75"></div>` : ''}
+      ${r.riskFood ? `<div class="field"><label>실측 중심온도 (℃) — 안전 확인용</label><input id="result-core" type="number" inputmode="numeric" placeholder="예: 75"></div>` : ''}
       <button class="btn" data-action="skip-result">건너뛰기</button>
     </div>`;
 }
