@@ -333,6 +333,19 @@ body.cookmode-on {
 .result-prompt h2 { font-size: var(--fs-xl); }
 .cooked-with { color: var(--text-2); font-size: var(--fs-base); margin: 0; }
 .cooked-with b { color: #ffd680; font-variant-numeric: tabular-nums; }
+
+/* Cook Mode 출구 링크 + 단계 알림 확인 버튼 (다크 배경) */
+.cm-back { align-self: flex-start; background: transparent; border: none; color: var(--text-2);
+  font-size: var(--fs-base); font-weight: 600; padding: var(--sp-2) 0; }
+.cm-ack { margin-left: var(--sp-3); background: #2e251d; color: #fff; border: 1px solid #4a3d31; vertical-align: middle; }
+
+/* 조리 중 복귀 인디케이터 (Cook Mode 밖에 있을 때) */
+#cook-indicator { display: flex; justify-content: center; padding: var(--sp-2) var(--sp-4) 0; }
+#cook-indicator[hidden] { display: none; }
+#cook-indicator button { background: var(--primary); color: #fff; border: none; border-radius: var(--r-pill);
+  padding: 10px 20px; font-weight: 700; font-size: var(--fs-sm); box-shadow: var(--shadow-md);
+  animation: pulse-cook 2s ease-in-out infinite; }
+@keyframes pulse-cook { 0%, 100% { box-shadow: var(--shadow-md); } 50% { box-shadow: 0 4px 18px hsl(20 78% 45% / 0.5); } }
 .result-choices { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: var(--sp-3); width: 100%; max-width: 460px; }
 .choice { flex-direction: column; gap: 6px; min-height: 92px; font-size: var(--fs-base);
   background: #2e251d; color: #fff; border: 2px solid #4a3d31; border-radius: var(--r-lg); }

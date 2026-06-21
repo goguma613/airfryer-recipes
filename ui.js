@@ -92,7 +92,7 @@ export function renderDetail(r, baseDevice) {
 
   const riskBox = r.riskFood ? `
     <div class="warn">
-      ⚠️ <b>위험식품</b> — 시간은 보조입니다. <b>심부 온도계로 중심온도 ${esc(r.targetCoreTemp || 74)}℃</b>를 확인하세요.
+      ⚠️ <b>중심온도 확인 식품</b> — 시간은 보조입니다. <b>심부 온도계로 중심온도 ${esc(r.targetCoreTemp || 74)}℃</b>를 확인하세요.
       ${r.startState === 'frozen' ? '<br>냉동 상태는 속까지 익는 데 시간이 더 걸립니다.' : ''}
     </div>` : '';
 
@@ -210,6 +210,7 @@ export function renderCook(r, devices, selectedDeviceId, amount, result, suggest
 export function renderCookMode(r, timeStr, stepMsg) {
   return `
     <div class="cookmode">
+      <button class="cm-back" data-action="cm-back">← 레시피 보기 (타이머 유지)</button>
       <div class="cm-name">${esc(r.name)}</div>
       <div class="cm-time" id="cm-time">${esc(timeStr)}</div>
       <div class="cm-step" id="cm-step">${esc(stepMsg || '')}</div>
@@ -248,7 +249,9 @@ export function renderResultPrompt(r, used = {}) {
         <input id="result-adjust" type="number" inputmode="numeric" placeholder="예: +2 또는 -1">
       </div>
       ${r.riskFood ? `<div class="field"><label>실측 중심온도 (℃) — 안전 확인용</label><input id="result-core" type="number" inputmode="numeric" placeholder="예: 75"></div>` : ''}
-      <button class="btn" data-action="skip-result">건너뛰기</button>
+      ${r.riskFood
+        ? `<button class="link-btn" data-action="skip-result">기록 없이 닫기</button>`
+        : `<button class="btn" data-action="skip-result">건너뛰기</button>`}
     </div>`;
 }
 
@@ -293,7 +296,7 @@ export function renderEdit(r, devices) {
           <div class="field"><label>시작 상태</label><select id="f-state">${stOpts}</select></div>
         </div>
         <div class="field"><label>기준 기기</label><select id="f-device">${devOpts || '<option value="">기기 없음</option>'}</select></div>
-        <label class="check"><input id="f-risk" type="checkbox" ${r.riskFood ? 'checked' : ''}> 위험식품(닭·돼지·다짐육·생선·달걀) — 중심온도 확인 필요</label>
+        <label class="check"><input id="f-risk" type="checkbox" ${r.riskFood ? 'checked' : ''}> 중심온도 확인 식품(닭·돼지·다짐육·생선·달걀)</label>
         <div class="field"><label>목표 중심온도(℃)</label><input id="f-core" type="number" inputmode="numeric" value="${esc(r.targetCoreTemp ?? '')}" placeholder="닭 74 / 다짐육 71 / 통살 63"></div>
         <label class="check"><input id="f-flip" type="checkbox" ${r.flip ?? true ? 'checked' : ''}> 중간에 뒤집기/흔들기</label>
         <div class="field"><label>단계 알림 (한 줄에 "분,내용")</label>

@@ -13,6 +13,7 @@ let nav = { screen: 'home', id: null };
 let homeQuery = '';
 let cook = { recipeId: null, deviceId: null, amount: null, result: null, temp: null, time: null };
 let timer = null;
+let cooking = false;   // 조리(타이머) 진행 중 — Cook Mode를 떠나도 복귀 인디케이터 표시용
 let persisted = false;
 let lastImportBackup = null;
 let syncUser = null;
@@ -176,6 +177,16 @@ function render() {
   }
   updateTabs();
   updateNudge();
+  updateCookIndicator();
+}
+
+// 조리 중 Cook Mode를 떠나 있으면 "타이머로 돌아가기" 인디케이터를 띄운다.
+function updateCookIndicator() {
+  const el = document.getElementById('cook-indicator');
+  if (!el) return;
+  const show = cooking && nav.screen !== 'cookmode' && nav.screen !== 'result';
+  el.hidden = !show;
+  el.innerHTML = show ? `<button data-action="resume-cook">🔥 조리 중 — 타이머로 돌아가기</button>` : '';
 }
 
 function updateTabs() {
@@ -293,10 +304,13 @@ function onClick(e) {
     case 'cm-pause': togglePause(t); break;
     case 'cm-add': if (timer) timer.addSeconds(Number(t.dataset.sec) || 60); break;
     case 'cm-stop': confirmStop(); break;
+    case 'cm-back': go('detail', cook.recipeId); break;   // 타이머 유지한 채 레시피 잠깐 보기
+    case 'resume-cook': go('cookmode'); break;            // 인디케이터 → 타이머로 복귀
+    case 'step-ack': { const el = document.getElementById('cm-step'); if (el) el.textContent = ''; break; }
 
     // 결과 기록
     case 'result': saveResult(id, t.dataset.result); break;
-    case 'skip-result': go('detail', cook.recipeId); break;
+    case 'skip-result': timer = null; cooking = false; go('detail', cook.recipeId); break;
 
     // 편집
     case 'extract': doExtract(); break;
@@ -358,6 +372,7 @@ function startTimer(id) {
 function startTimerWith(r, temp, minutes) {
   cook.temp = temp;
   cook.time = minutes;
+  cooking = true;
   store.rememberLastUsed(r.id, cook.deviceId, cook.amount);
 
   // 화면 진입(오디오 컨텍스트 활성화를 위해 사용자 제스처 내에서 beep 준비)
@@ -368,7 +383,16 @@ function startTimerWith(r, temp, minutes) {
     totalSec: minutes * 60,
     steps: r.flip ? r.steps : [],
     onTick: (rem) => { const el = document.getElementById('cm-time'); if (el) el.textContent = fmtTime(rem); },
-    onStep: (s) => { const el = document.getElementById('cm-step'); if (el) el.textContent = `🔔 ${s.label}`; },
+    onStep: (s) => {
+      const el = document.getElementById('cm-step');
+      if (!el) return;
+      el.textContent = `🔔 ${s.label}`;
+      const b = document.createElement('button');
+      b.className = 'btn small cm-ack';
+      b.dataset.action = 'step-ack';
+      b.textContent = '했어요';
+      el.appendChild(b);
+    },
     onDone: () => { if (timer) cook.time = Math.max(1, Math.round(timer.totalSec / 60)); go('result'); },
   });
   timer.start();
@@ -410,6 +434,7 @@ function saveResult(id, result) {
     nextAdjust: Number.isFinite(adj) && adj !== 0 ? adj : null,  // 다음 추천 보정값(학습 입력)
   });
   timer = null;
+  cooking = false;
   // 학습 루프 가시화: 무엇을 배웠는지 알려준다
   const msg = result === 'undercooked' ? '기록했어요. 다음엔 시간을 더 늘려 추천할게요'
     : result === 'burnt' ? '기록했어요. 다음엔 시간을 줄여 추천할게요'
