@@ -164,7 +164,7 @@ function updateTabs() {
 
 function updateNudge() {
   if (nav.screen === 'home') {
-    nudgeEl.innerHTML = ui.backupNudge(store.getState().settings);
+    nudgeEl.innerHTML = ui.backupNudge(store.getState().settings, !!syncUser);
   } else {
     nudgeEl.innerHTML = '';
   }

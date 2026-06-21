@@ -342,6 +342,33 @@ export function renderSettings(settings, persisted, syncInfo) {
       <button class="btn primary" data-action="sign-in">☁️ Google로 로그인해 동기화</button>`;
   }
 
+  // 백업 섹션은 맥락에 따라 다르게: 로그인 시 클라우드가 1차 안전망 → 내보내기는 보조.
+  // 비로그인 시 내보내기가 유일한 안전망 → 강하게 안내 + 로그인 권유.
+  const loggedIn = !!s.user;
+  const backupBlock = loggedIn ? `
+      <h2 class="section-title">백업 / 내보내기</h2>
+      <div class="info">
+        ☁️ 로그인되어 있어 변경사항이 <b>클라우드에 자동 저장</b>돼요. 다만 동기화는
+        삭제까지 함께 퍼지니, <b>실수로 지웠거나 계정을 잃었을 때</b>를 대비해 가끔
+        파일로도 내보내 두면 더 안전해요(추가 안전장치).
+        <br>마지막 내보내기: <b>${esc(last)}</b>
+      </div>
+      <button class="btn" data-action="export">📤 데이터 내보내기 (백업 파일)</button>
+      <button class="btn" data-action="import-pick">📥 가져오기</button>
+      <input id="import-file" type="file" accept="application/json,.json" hidden>` : `
+      <h2 class="section-title">백업 (중요)</h2>
+      <div class="info">
+        이 앱의 데이터는 <b>이 브라우저에만</b> 저장돼요. 브라우저 데이터를 지우거나
+        오랫동안 안 열면 사라질 수 있어요. <b>위에서 Google 로그인</b>하면 자동으로
+        안전하게 보관돼요. 로그인이 싫다면 주기적으로 내보내기로 백업하세요.
+        <br>마지막 백업: <b>${esc(last)}</b>${needBackup ? ' <span class="badge risk">백업 권장</span>' : ''}
+        <br>저장 영속 권한: <b>${persisted ? '허용됨' : '미허용'}</b>
+      </div>
+      <button class="btn primary" data-action="export">📤 내보내기 (JSON)</button>
+      <button class="btn" data-action="import-pick">📥 가져오기</button>
+      <input id="import-file" type="file" accept="application/json,.json" hidden>
+      <button class="btn" data-action="req-persist">저장 영속 권한 요청</button>`;
+
   return `
     <div class="settings">
       <h1>설정</h1>
@@ -349,17 +376,7 @@ export function renderSettings(settings, persisted, syncInfo) {
       <h2 class="section-title">클라우드 동기화</h2>
       ${syncBlock}
 
-      <h2 class="section-title">백업 (중요)</h2>
-      <div class="info">
-        이 앱의 데이터는 <b>이 브라우저에만</b> 저장돼요. 브라우저 데이터를 지우거나
-        오랫동안 안 열면 사라질 수 있어요. 주기적으로 내보내기로 백업하세요.
-        <br>마지막 백업: <b>${esc(last)}</b>${needBackup ? ' <span class="badge risk">백업 권장</span>' : ''}
-        <br>저장 영속 권한: <b>${persisted ? '허용됨' : '미허용'}</b>
-      </div>
-      <button class="btn primary" data-action="export">📤 내보내기 (JSON)</button>
-      <button class="btn" data-action="import-pick">📥 가져오기</button>
-      <input id="import-file" type="file" accept="application/json,.json" hidden>
-      <button class="btn" data-action="req-persist">저장 영속 권한 요청</button>
+      ${backupBlock}
 
       <h2 class="section-title">기기</h2>
       <button class="btn" data-action="go-devices">내 기기 관리</button>
@@ -369,7 +386,8 @@ export function renderSettings(settings, persisted, syncInfo) {
     </div>`;
 }
 
-export function backupNudge(settings) {
+export function backupNudge(settings, loggedIn) {
+  if (loggedIn) return '';   // 로그인 시 클라우드 자동 백업 → 수동 백업 잔소리 안 함
   if ((settings.changeCount || 0) < 5) return '';
   return `<div class="nudge" data-action="go-settings">💾 변경사항이 쌓였어요. 백업하시겠어요? <b>설정 →</b></div>`;
 }
