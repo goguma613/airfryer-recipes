@@ -131,7 +131,17 @@ export function suggestFromHistory(recipe, deviceId) {
     if (last.result === 'undercooked') { time = time + step; reason = `지난번 덜 익어서 +${step}분 제안`; }
     else { time = Math.max(1, time - step); reason = `지난번 타서 -${step}분 제안`; }
   }
-  return { temp, time, amount: last.actualAmount, date: last.date, result: last.result, reason, count: logs.length };
+  return { temp: Math.round(temp), time: Math.max(1, Math.round(time)), amount: last.actualAmount, date: last.date, result: last.result, reason, count: logs.length };
+}
+
+// 인분(양)이 바스켓 한 번에 안 들어갈 듯하면 분할 조리 안내.
+// 추정: 단일 레이어 한도 ≈ 용량(L) × 120g (한 겹으로 펴야 고르게 익으므로 보수적).
+export function batchAdvice(grams, capacityL) {
+  const g = Number(grams), cap = Number(capacityL);
+  if (!(g > 0) || !(cap > 0)) return null;
+  const maxSingle = cap * 120;
+  if (g <= maxSingle) return null;
+  return { batches: Math.ceil(g / maxSingle), maxSingle: Math.round(maxSingle) };
 }
 
 // 텍스트에서 온도/시간 자동추출 (봉지/사이트 붙여넣기용, 오프라인 정규식)

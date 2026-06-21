@@ -268,6 +268,20 @@ h1 { font-size: var(--fs-2xl); margin: var(--sp-1) 0 var(--sp-3); font-weight: 8
   display: flex; align-items: center; gap: var(--sp-3); flex-wrap: wrap; font-weight: 600; }
 .suggest .btn { margin: 0; }
 
+/* 인분 스텝퍼 (그램 대신 직관적 입력) */
+.servings { display: flex; align-items: center; gap: var(--sp-2); }
+.step-btn { width: 46px; height: 46px; flex: none; border-radius: 50%; border: 1.5px solid var(--primary-line);
+  background: var(--primary-soft); color: var(--primary-hover); font-size: var(--fs-xl); font-weight: 800; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: var(--shadow-xs); transition: transform var(--t-fast), background var(--t-fast); }
+.step-btn:active { transform: scale(0.9); background: var(--primary-line); }
+.serv-val { font-size: var(--fs-md); min-width: 84px; text-align: center; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.serv-val b { font-size: var(--fs-2xl); color: var(--primary); margin-right: 3px; }
+.serv-grams { color: var(--muted); font-size: var(--fs-sm); margin-left: var(--sp-2); }
+.warn-soft { color: var(--warn); font-size: var(--fs-sm); line-height: 1.45;
+  background: var(--warn-soft); border: 1px solid var(--warn-line); border-radius: var(--r-md);
+  padding: 9px 12px; margin: var(--sp-3) 0 0; }
+
 .result-big { background: linear-gradient(135deg, #e2622a, var(--primary-hover)); color: #fff;
   border-radius: var(--r-xl); padding: var(--sp-6); text-align: center; margin: var(--sp-4) 0; box-shadow: var(--shadow-primary); }
 .result-temp { font-size: var(--fs-2xl); font-weight: 700; opacity: 0.95; }
@@ -317,6 +331,8 @@ body.cookmode-on {
 .cm-warn { max-width: 420px; }
 
 .result-prompt h2 { font-size: var(--fs-xl); }
+.cooked-with { color: var(--text-2); font-size: var(--fs-base); margin: 0; }
+.cooked-with b { color: #ffd680; font-variant-numeric: tabular-nums; }
 .result-choices { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: var(--sp-3); width: 100%; max-width: 460px; }
 .choice { flex-direction: column; gap: 6px; min-height: 92px; font-size: var(--fs-base);
   background: #2e251d; color: #fff; border: 2px solid #4a3d31; border-radius: var(--r-lg); }

@@ -2,7 +2,7 @@
 import * as store from './store.js';
 import * as ui from './ui.js';
 import * as sync from './sync.js';
-import { adjust, suggestFromHistory, extractFromText } from './calc.js';
+import { adjust, suggestFromHistory, extractFromText, batchAdvice } from './calc.js';
 import { CookTimer, fmtTime, beep } from './timer.js';
 
 const view = document.getElementById('view');
@@ -17,6 +17,7 @@ let persisted = false;
 let lastImportBackup = null;
 let syncUser = null;
 let syncStatus = sync.isConfigured() ? 'ready' : 'unconfigured';
+let initialMergePush = null;   // 최초 동기화 머지 결과: null=원격 못읽음, true/false=pushNeeded
 
 // --------------------------------------------------------------------------
 // 부팅
@@ -37,12 +38,20 @@ async function boot() {
       else maybeSeedLocal();   // 비로그인 → 로컬 온보딩 샘플(최초 1회)
       if (nav.screen === 'settings') render();
     },
-    onInitialRemote: (data) => { const r = store.mergeRemote(data); if (r.changed) refreshIfVisible(); },
-    onAfterInitial: () => sync.pushData(store.getFullData()),
+    onInitialRemote: (data) => { const r = store.mergeRemote(data); initialMergePush = r.pushNeeded; if (r.changed) refreshIfVisible(); },
+    onAfterInitial: () => {
+      // 빈 로컬을 클라우드에 무조건 덮어쓰지 않는다(데이터 손실 방지).
+      // 원격을 읽었으면 pushNeeded일 때만, 원격이 비었으면(머지 안 됨) 로컬에 데이터 있을 때만 푸시.
+      const s = store.getFullData();
+      const localHasData = !!((s.recipes && s.recipes.length) || (s.myDevices && s.myDevices.length));
+      if (initialMergePush === true || (initialMergePush === null && localHasData)) sync.pushData(s);
+      initialMergePush = null;
+    },
     onRemoteData: (data) => handleRemote(data),
     onStatus: (status) => {
       syncStatus = status;
-      if (status === 'offline' || status === 'unconfigured') maybeSeedLocal();  // 클라우드 못 쓰는 신규 → 로컬 시드
+      // 미설정(파이어베이스 없음)일 때만 즉시 시드. 'offline'은 로그인 사용자일 수도 있어(인증 미해결) 시드 보류 → onUser(null)에서 처리.
+      if (status === 'unconfigured') maybeSeedLocal();
       if (nav.screen === 'settings') render();
     },
   });
@@ -147,7 +156,7 @@ function render() {
     }
     case 'result': {
       const r = store.getRecipe(cook.recipeId);
-      view.innerHTML = ui.renderResultPrompt(r);
+      view.innerHTML = ui.renderResultPrompt(r, { temp: cook.temp, time: cook.time });
       break;
     }
     case 'edit':
@@ -202,10 +211,33 @@ function renderCook() {
     cook.deviceId = (last && last.deviceId) || r.baseDeviceId || (devices[0] && devices[0].id) || null;
     cook.amount = (last && last.amount) || r.baseAmount || null;
   }
+  // 인분 모드: 1인분 기준량이 있으면 양을 '인분'으로 입력받고 내부적으로 그램 환산.
+  const gps = Number(r.gramsPerServing);
+  const useServings = Number.isFinite(gps) && gps > 0;
+  if (useServings) {
+    if (cook.servings == null) cook.servings = Math.max(1, Math.round((Number(cook.amount) || gps) / gps));
+    cook.amount = cook.servings * gps;
+  }
   const result = computeResult(r, cook.deviceId, cook.amount);
   cook.result = result;
   const suggestion = suggestFromHistory(r, cook.deviceId);
-  view.innerHTML = ui.renderCook(r, devices, cook.deviceId, cook.amount, result, suggestion);
+  const device = store.getDevice(cook.deviceId);
+  let capacityWarn = null;
+  if (useServings) {
+    const adv = batchAdvice(cook.amount, device && device.capacity);
+    if (adv) capacityWarn = `${device.capacity}L 바스켓엔 한 번에 다 안 들어갈 수 있어요 — ${adv.batches}번에 나눠 구우면 더 고르게 익어요.`;
+  }
+  view.innerHTML = ui.renderCook(r, devices, cook.deviceId, cook.amount, result, suggestion,
+    { useServings, servings: cook.servings, capacityWarn });
+}
+
+function changeServings(delta) {
+  const r = store.getRecipe(cook.recipeId);
+  const gps = Number(r && r.gramsPerServing);
+  if (!Number.isFinite(gps) || gps <= 0) return;
+  cook.servings = Math.max(1, (cook.servings || 1) + delta);
+  cook.amount = cook.servings * gps;
+  renderCook();
 }
 
 function computeResult(r, deviceId, amount) {
@@ -250,9 +282,11 @@ function onClick(e) {
     case 'del': confirmDelete(id); break;
 
     // 조리
-    case 'cook': cook = { recipeId: id, deviceId: null, amount: null }; go('cook'); break;
+    case 'cook': cook = { recipeId: id, deviceId: null, amount: null, servings: null }; go('cook'); break;
     case 'back-detail': go('detail', id); break;
     case 'use-suggest': useSuggestion(); break;
+    case 'serv-inc': changeServings(1); break;
+    case 'serv-dec': changeServings(-1); break;
     case 'start-timer': startTimer(id); break;
 
     // Cook Mode
@@ -318,7 +352,7 @@ function startTimer(id) {
   const r = store.getRecipe(id);
   if (!r) return;
   const res = cook.result || computeResult(r, cook.deviceId, cook.amount);
-  startTimerWith(r, res.temp, res.timeMin);
+  startTimerWith(r, res.temp, Math.round((res.timeMin + res.timeMax) / 2));   // 하한 대신 중간값(덜 익힘 방지)
 }
 
 function startTimerWith(r, temp, minutes) {
@@ -335,7 +369,7 @@ function startTimerWith(r, temp, minutes) {
     steps: r.flip ? r.steps : [],
     onTick: (rem) => { const el = document.getElementById('cm-time'); if (el) el.textContent = fmtTime(rem); },
     onStep: (s) => { const el = document.getElementById('cm-step'); if (el) el.textContent = `🔔 ${s.label}`; },
-    onDone: () => { go('result'); },
+    onDone: () => { if (timer) cook.time = Math.max(1, Math.round(timer.totalSec / 60)); go('result'); },
   });
   timer.start();
 }
@@ -358,7 +392,7 @@ async function confirmDelete(id) {
 async function confirmStop() {
   const ok = await ui.confirmSheet({ title: '타이머 정지', message: '타이머를 정지하고 결과를 기록할까요?', okText: '정지', danger: true });
   if (!ok) return;
-  if (timer) timer.stop();
+  if (timer) { timer.stop(); cook.time = Math.max(1, Math.round((timer.totalSec - timer.remaining) / 60)); }
   go('result');
 }
 
@@ -423,6 +457,7 @@ function saveRecipe() {
     name, baseTemp: temp, baseTime: time,
     category: val('f-cat') || '기타',
     baseAmount: num('f-amount'),
+    gramsPerServing: num('f-serving'),
     source: val('f-src') || 'manual',
     startState: val('f-state') || 'room',
     baseDeviceId: val('f-device') || null,

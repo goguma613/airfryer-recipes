@@ -14,7 +14,7 @@
   <div id="out"></div>
 
   <script type="module">
-    import { adjust, suggestFromHistory, extractFromText, FACTORS } from './calc.js';
+    import { adjust, suggestFromHistory, extractFromText, batchAdvice, FACTORS } from './calc.js';
     import { mergeCore } from './store.js';
 
     const out = document.getElementById('out');
@@ -98,6 +98,14 @@
         { result: 'good', deviceId: 'A', actualTemp: 190, actualTime: 26 },
       ]}, 'A');
       ok('학습: 최근 성공 2번 평균(25분) + 평균 표기', avgS && avgS.time === 25 && /평균/.test(avgS.reason));
+    }
+
+    // 6-3) 분할 조리 안내 (인분/용량)
+    {
+      ok('batch: 용량 내(300g/5L) → null', batchAdvice(300, 5) === null);
+      const a = batchAdvice(900, 5);   // 5×120=600 < 900 → 2배치
+      ok('batch: 초과 → 2번 분할', a && a.batches === 2);
+      ok('batch: 용량 정보 없음 → null', batchAdvice(900, null) === null);
     }
 
     // 7) 텍스트 추출

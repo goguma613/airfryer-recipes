@@ -144,7 +144,7 @@ function renderLog(logs) {
 // ---------------------------------------------------------------------------
 // 조리 화면(보정 결과)
 // ---------------------------------------------------------------------------
-export function renderCook(r, devices, selectedDeviceId, amount, result, suggestion) {
+export function renderCook(r, devices, selectedDeviceId, amount, result, suggestion, opts = {}) {
   const devOpts = devices.map(d =>
     `<option value="${esc(d.id)}" ${d.id === selectedDeviceId ? 'selected' : ''}>${esc(d.name)} (${esc(d.wattage || '?')}W)</option>`
   ).join('');
@@ -174,10 +174,21 @@ export function renderCook(r, devices, selectedDeviceId, amount, result, suggest
         <label>어느 기기로?</label>
         <select id="cook-device">${devOpts || '<option>기기를 먼저 등록하세요</option>'}</select>
       </div>
+      ${opts.useServings ? `
+      <div class="field">
+        <label>몇 인분?</label>
+        <div class="servings">
+          <button class="step-btn" data-action="serv-dec" aria-label="인분 줄이기">−</button>
+          <span class="serv-val"><b>${esc(opts.servings)}</b>인분</span>
+          <button class="step-btn" data-action="serv-inc" aria-label="인분 늘리기">＋</button>
+          <span class="serv-grams">≈ ${esc(amount)}g</span>
+        </div>
+        ${opts.capacityWarn ? `<p class="warn-soft">⚠️ ${esc(opts.capacityWarn)}</p>` : ''}
+      </div>` : `
       <div class="field">
         <label>양 (g) — 기준 ${esc(r.baseAmount || '?')}g</label>
         <input id="cook-amount" type="number" inputmode="numeric" value="${esc(amount ?? r.baseAmount ?? '')}" placeholder="${esc(r.baseAmount || '')}">
-      </div>
+      </div>`}
       ${sugg}
       <div class="adjust-card">
         <div class="adjust-from">${baseLine}</div>
@@ -189,7 +200,7 @@ export function renderCook(r, devices, selectedDeviceId, amount, result, suggest
         ${why}
       </div>
       ${riskBox}
-      <button class="btn primary big" data-action="start-timer" data-id="${esc(r.id)}">⏱ ${esc(result.timeMin)}분 타이머 시작</button>
+      <button class="btn primary big" data-action="start-timer" data-id="${esc(r.id)}">⏱ ${esc(Math.round((result.timeMin + result.timeMax) / 2))}분 타이머 시작</button>
     </div>`;
 }
 
@@ -212,8 +223,10 @@ export function renderCookMode(r, timeStr, stepMsg) {
 }
 
 // 타이머 종료 후 결과 3택
-export function renderResultPrompt(r) {
+export function renderResultPrompt(r, used = {}) {
   const core = esc(r.targetCoreTemp || 74);
+  const cooked = (used.temp != null || used.time != null)
+    ? `<p class="cooked-with">이번엔 <b>${esc(used.temp ?? '?')}℃ · ${esc(used.time ?? '?')}분</b>으로 구웠어요</p>` : '';
   const safety = r.riskFood ? `
     <div class="safety-gate">
       <div class="safety-title">🌡️ 먹기 전 안전 확인</div>
@@ -224,6 +237,7 @@ export function renderResultPrompt(r) {
     <div class="result-prompt">
       ${safety}
       <h2>${esc(r.name)} — 어땠어요?</h2>
+      ${cooked}
       <div class="result-choices">
         <button class="btn choice" data-action="result" data-id="${esc(r.id)}" data-result="good"><span class="emoji">👍</span>딱좋음</button>
         <button class="btn choice" data-action="result" data-id="${esc(r.id)}" data-result="undercooked"><span class="emoji">🥶</span>덜익음</button>
@@ -273,6 +287,7 @@ export function renderEdit(r, devices) {
           <div class="field"><label>카테고리</label><select id="f-cat">${catOpts}</select></div>
           <div class="field"><label>기준 양(g)</label><input id="f-amount" type="number" inputmode="numeric" value="${esc(r.baseAmount ?? '')}"></div>
         </div>
+        <div class="field"><label>1인분 기준량(g) <span class="muted small">— 넣으면 조리 화면에서 '인분'으로 물어봐요</span></label><input id="f-serving" type="number" inputmode="numeric" value="${esc(r.gramsPerServing ?? '')}" placeholder="예: 너겟 100, 만두 120"></div>
         <div class="field-row">
           <div class="field"><label>출처</label><select id="f-src">${srcOpts}</select></div>
           <div class="field"><label>시작 상태</label><select id="f-state">${stOpts}</select></div>

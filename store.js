@@ -49,6 +49,7 @@ function seedState() {
     baseTemp: r.baseTemp,
     baseTime: r.baseTime,
     baseAmount: r.baseAmount ?? null,
+    gramsPerServing: r.gramsPerServing ?? null,
     baseDeviceId: deviceId,
     flip: r.flip ?? true,
     riskFood: r.riskFood ?? false,
@@ -63,7 +64,7 @@ function seedState() {
 
   s.recipes.push(
     mk({ name: '냉동 감자튀김', category: '냉동식품', baseTemp: 200, baseTime: 15, baseAmount: 300,
-         startState: 'frozen', riskFood: false,
+         gramsPerServing: 150, startState: 'frozen', riskFood: false,
          steps: [{ atMin: 8, label: '한 번 흔들기' }], memo: '봉지 표기 기준. 바삭하게 하려면 +2~3분.' }),
     mk({ name: '닭다리(생)', category: '육류', baseTemp: 190, baseTime: 22, baseAmount: 400,
          startState: 'chilled', riskFood: true, targetCoreTemp: 74,
@@ -142,6 +143,7 @@ function normalizeRecipe(x) {
     baseTemp: numOrNull(x.baseTemp),
     baseTime: numOrNull(x.baseTime),
     baseAmount: numOrNull(x.baseAmount),
+    gramsPerServing: numOrNull(x.gramsPerServing),   // 1인분 기준량(g) — 있으면 조리화면서 인분 입력
     baseDeviceId: x.baseDeviceId || null,
     flip: x.flip ?? true,
     riskFood: !!x.riskFood,
